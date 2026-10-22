@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AiPanel, PhotoAnalysis } from "../components/AiPanel";
 import { AmountSheet, defaultAmount, sourceLabel } from "../components/AmountSheet";
 import { CustomFoodForm, QuickAddForm } from "../components/CustomFoodForm";
@@ -7,6 +7,7 @@ import { type CapturedPhoto, Scanner } from "../components/Scanner";
 import { FoodThumb, Sheet } from "../components/ui";
 import { type SavedMeal, db, ensureFood, snapshotOf } from "../db";
 import { type FoodSnapshot, fmt, scale, sum } from "../lib/nutrition";
+import { loadCatalog, normalize, searchItems } from "../lib/catalog";
 import { OffError, lookupBarcode, searchOff } from "../lib/off";
 
 export type AddItems = (items: { food: FoodSnapshot; amount: number }[]) => void | Promise<void>;
@@ -96,27 +97,37 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
 
 // ---------- Suche ----------
 
+type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
+
 function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<FoodSnapshot[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"recent" | "fav" | "custom">("recent");
-  const [retry, setRetry] = useState(0);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [catalogError, setCatalogError] = useState(false);
+  const [online, setOnline] = useState<{ query: string; results: FoodSnapshot[] | null; error: string | null } | null>(null);
+  const deferred = useDeferredValue(q);
 
-  const local = useLiveQuery(async () => {
-    const all = await db.foods.toArray();
-    return all;
+  useEffect(() => {
+    loadCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalogError(true));
   }, []);
 
-  const query = q.trim().toLowerCase();
+  const local = useLiveQuery(() => db.foods.toArray(), []);
+
+  const query = deferred.trim();
+  const nq = normalize(query);
   const localMatches = useMemo(() => {
     if (!local) return [];
-    if (query) {
+    if (nq) {
+      const tokens = nq.split(/\s+/);
       return local
-        .filter((f) => `${f.name} ${f.brand ?? ""}`.toLowerCase().includes(query))
+        .filter((f) => {
+          const hay = normalize(`${f.name} ${f.brand ?? ""}`);
+          return tokens.every((t) => hay.includes(t));
+        })
         .sort((a, b) => b.favorite - a.favorite || b.useCount - a.useCount)
-        .slice(0, 15);
+        .slice(0, 10);
     }
     if (filter === "fav") return local.filter((f) => f.favorite).sort((a, b) => a.name.localeCompare(b.name));
     if (filter === "custom") return local.filter((f) => f.source === "custom").sort((a, b) => a.name.localeCompare(b.name));
@@ -124,29 +135,26 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
       .filter((f) => f.lastUsedAt > 0)
       .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
       .slice(0, 30);
-  }, [local, query, filter]);
+  }, [local, nq, filter]);
 
-  useEffect(() => {
-    setResults(null);
-    setError(null);
-    if (query.length < 3) return;
-    const ctrl = new AbortController();
-    const t = setTimeout(async () => {
-      setLoading(true);
-      try {
-        setResults(await searchOff(query, ctrl.signal));
-      } catch (e) {
-        if ((e as Error).name !== "AbortError") setError((e as Error).message);
-      } finally {
-        if (!ctrl.signal.aborted) setLoading(false);
-      }
-    }, 900);
-    return () => {
-      clearTimeout(t);
-      ctrl.abort();
-      setLoading(false);
-    };
-  }, [query, retry]);
+  const catalogMatches = useMemo(() => {
+    if (!catalog || !nq) return [];
+    const own = new Set(localMatches.map((f) => f.ean).filter(Boolean));
+    return searchItems(catalog, query, 40).filter((f) => !own.has(f.ean));
+  }, [catalog, nq, query, localMatches]);
+
+  const searchOnline = async () => {
+    const qq = query;
+    setOnline({ query: qq, results: null, error: null });
+    try {
+      const results = await searchOff(qq);
+      setOnline((o) => (o?.query === qq ? { query: qq, results, error: null } : o));
+    } catch (e) {
+      setOnline((o) => (o?.query === qq ? { query: qq, results: null, error: (e as Error).message } : o));
+    }
+  };
+
+  const onlineForQuery = online && online.query === query ? online : null;
 
   return (
     <div>
@@ -157,59 +165,92 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         enterKeyHint="search"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
       />
 
       {!query && (
-        <div className="row" style={{ margin: "12px 0 0", gap: 6 }}>
-          <button className={`chip${filter === "recent" ? " active" : ""}`} onClick={() => setFilter("recent")}>
-            Zuletzt
-          </button>
-          <button className={`chip${filter === "fav" ? " active" : ""}`} onClick={() => setFilter("fav")}>
-            ★ Favoriten
-          </button>
-          <button className={`chip${filter === "custom" ? " active" : ""}`} onClick={() => setFilter("custom")}>
-            Eigene
-          </button>
-        </div>
-      )}
-
-      {localMatches.length > 0 && (
         <>
-          <div className="section-title">{query ? "Meine Lebensmittel" : ""}</div>
-          <FoodList foods={localMatches} onPick={onPick} />
-        </>
-      )}
-      {!query && localMatches.length === 0 && (
-        <div className="empty small">
-          {filter === "fav"
-            ? "Noch keine Favoriten. Tippe beim Hinzufügen auf ☆."
-            : filter === "custom"
-              ? "Noch keine eigenen Lebensmittel."
-              : "Hier erscheinen deine zuletzt gegessenen Lebensmittel."}
-        </div>
-      )}
-
-      {query.length >= 3 && (
-        <>
-          <div className="section-title row between">
-            <span>Open Food Facts</span>
-            {loading && <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />}
+          <div className="row" style={{ margin: "12px 0 0", gap: 6 }}>
+            <button className={`chip${filter === "recent" ? " active" : ""}`} onClick={() => setFilter("recent")}>
+              Zuletzt
+            </button>
+            <button className={`chip${filter === "fav" ? " active" : ""}`} onClick={() => setFilter("fav")}>
+              ★ Favoriten
+            </button>
+            <button className={`chip${filter === "custom" ? " active" : ""}`} onClick={() => setFilter("custom")}>
+              Eigene
+            </button>
           </div>
-          {error && (
-            <div className="notice error">
-              {error}
-              <div style={{ marginTop: 8 }}>
-                <button className="btn small" onClick={() => setRetry((r) => r + 1)}>
-                  Nochmal suchen
-                </button>
-              </div>
+          {localMatches.length > 0 ? (
+            <>
+              <div className="section-title" />
+              <FoodList foods={localMatches} onPick={onPick} />
+            </>
+          ) : (
+            <div className="empty small">
+              {filter === "fav"
+                ? "Noch keine Favoriten. Tippe beim Hinzufügen auf ☆."
+                : filter === "custom"
+                  ? "Noch keine eigenen Lebensmittel."
+                  : "Hier erscheinen deine zuletzt gegessenen Lebensmittel."}
             </div>
           )}
-          {results && results.length === 0 && <div className="empty small">Nichts gefunden.</div>}
-          {results && results.length > 0 && <FoodList foods={results} onPick={onPick} />}
         </>
       )}
-      {query.length > 0 && query.length < 3 && <div className="empty small">Mindestens 3 Buchstaben für die Online-Suche.</div>}
+
+      {query && (
+        <>
+          {localMatches.length > 0 && (
+            <>
+              <div className="section-title">Meine Lebensmittel</div>
+              <FoodList foods={localMatches} onPick={onPick} />
+            </>
+          )}
+          <div className="section-title row between">
+            <span>Produkte</span>
+            {!catalog && !catalogError && <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />}
+          </div>
+          {catalogError && <div className="notice error">Die Produktliste konnte nicht geladen werden. Bitte mit Internet einmal neu öffnen.</div>}
+          {catalog && catalogMatches.length === 0 && <div className="empty small">Keine Treffer in den beliebtesten Produkten.</div>}
+          {catalogMatches.length > 0 && <FoodList foods={catalogMatches} onPick={onPick} />}
+
+          {query.length >= 3 && (
+            <div style={{ marginTop: 14 }}>
+              {!onlineForQuery && (
+                <button className="btn block" onClick={searchOnline}>
+                  🌐 Nicht dabei? Online in allen Produkten suchen
+                </button>
+              )}
+              {onlineForQuery && (
+                <>
+                  <div className="section-title row between">
+                    <span>Open Food Facts online</span>
+                    {!onlineForQuery.results && !onlineForQuery.error && (
+                      <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                    )}
+                  </div>
+                  {onlineForQuery.error && (
+                    <div className="notice error">
+                      {onlineForQuery.error}
+                      <div style={{ marginTop: 8 }}>
+                        <button className="btn small" onClick={searchOnline}>
+                          Nochmal versuchen
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {onlineForQuery.results?.length === 0 && <div className="empty small">Auch online nichts gefunden.</div>}
+                  {onlineForQuery.results && onlineForQuery.results.length > 0 && (
+                    <FoodList foods={onlineForQuery.results} onPick={onPick} />
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

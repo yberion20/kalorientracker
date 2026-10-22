@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseHealthText } from "./health";
 import { addDays, bmr, calorieTarget, macroGrams, scale, sum } from "./nutrition";
 import { mapOffProduct } from "./off";
+import { searchItems, toItems } from "./catalog";
 
 describe("nutrition", () => {
   it("rechnet Nährwerte auf die Menge um", () => {
@@ -81,5 +82,32 @@ describe("Health-Import", () => {
 
   it("lehnt fremden Text ab", () => {
     expect(parseHealthText("Hallo Welt")).toBeNull();
+  });
+});
+
+describe("Produktliste", () => {
+  const rows = [
+    ["1", "Alpenvollmilch Schokolade", "Milka", 530, 6, 58, 29, 57, "g", null],
+    ["2", "Frische Vollmilch 3,5 %", "Weihenstephan", 64, 3.4, 4.8, 3.5, 4.8, "ml", null],
+    ["3", "Haltbare Milch", "Milbona", 47, 3.4, 4.9, 1.5, 4.9, "ml", 250],
+    ["4", "Müsli Crunchy", "Kölln", 450, 9, 60, 17, 20, "g", null],
+  ] as Parameters<typeof toItems>[0];
+  const list = toItems(rows);
+
+  it("findet ganze Wörter vor Wortteilen", () => {
+    expect(searchItems(list, "milch")[0].name).toBe("Haltbare Milch");
+  });
+
+  it("ignoriert Umlaute und Groß-/Kleinschreibung", () => {
+    expect(searchItems(list, "musli").map((f) => f.ean)).toEqual(["4"]);
+  });
+
+  it("verlangt alle Suchwörter", () => {
+    expect(searchItems(list, "milch weihen").map((f) => f.ean)).toEqual(["2"]);
+  });
+
+  it("übernimmt Nährwerte und Einheit", () => {
+    const f = searchItems(list, "haltbare")[0];
+    expect(f).toMatchObject({ unit: "ml", servingSize: 250, source: "off", per100: { kcal: 47, fat: 1.5 } });
   });
 });

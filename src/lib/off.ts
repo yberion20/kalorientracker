@@ -115,34 +115,22 @@ export async function lookupBarcode(ean: string): Promise<FoodSnapshot> {
 
 export async function searchOff(query: string, signal?: AbortSignal): Promise<FoodSnapshot[]> {
   const q = encodeURIComponent(query.trim());
-  // Nur world.openfoodfacts.org liefert CORS-Header; Länderfilter per Parameter.
-  const url = (country: string) =>
-    `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&action=process&json=1&page_size=25&sort_by=unique_scans_n${country ? `&countries_tags_en=${country}` : ""}&fields=${FIELDS}`;
-  const once = async (country: string) => {
-    const res = await fetch(url(country), { signal });
-    if (!res.ok) throw new OffError(`Suche fehlgeschlagen (${res.status}).`, "network");
-    const data = (await res.json()) as { products?: OffProduct[] };
-    return (data.products ?? []).map((p) => mapOffProduct(p)).filter((f): f is FoodSnapshot => !!f);
-  };
-  // Die Suche von Open Food Facts ist begrenzt (ca. 10 Anfragen/Minute) und bei Überlast ohne CORS-Header –
-  // im Browser sieht das wie ein Netzwerkfehler aus. Deshalb einmal kurz warten und erneut versuchen.
-  const run = async (country: string) => {
-    try {
-      return await once(country);
-    } catch (e) {
-      if ((e as Error).name === "AbortError") throw e;
-      await new Promise((r) => setTimeout(r, 2000));
-      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
-      return await once(country);
-    }
-  };
+  // Nur world.openfoodfacts.org liefert CORS-Header. Die Textsuche ist dort auf ca. 10 Anfragen
+  // pro Minute begrenzt; bei Überschreitung kommt 503 ohne CORS-Header (im Browser: Netzwerkfehler).
+  // Deshalb genau eine Anfrage pro Suche, ohne automatische Wiederholung.
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${q}&search_simple=1&action=process&json=1&page_size=30&sort_by=unique_scans_n&fields=${FIELDS}`;
+  let res: Response;
   try {
-    // Erst deutsche Produkte, dann weltweit.
-    const de = await run("germany");
-    return de.length ? de : await run("");
+    res = await fetch(url, { signal });
   } catch (e) {
     if ((e as Error).name === "AbortError") throw e;
     if (!navigator.onLine) throw new OffError("Keine Internetverbindung.", "network");
-    throw new OffError("Die Open-Food-Facts-Suche ist gerade überlastet. Bitte gleich nochmal versuchen oder den Barcode scannen.", "network");
+    throw new OffError(
+      "Open Food Facts lässt nur wenige Online-Suchen pro Minute zu. Bitte etwa eine Minute warten – oder den Barcode scannen.",
+      "network",
+    );
   }
+  if (!res.ok) throw new OffError(`Online-Suche fehlgeschlagen (${res.status}). Bitte gleich nochmal versuchen.`, "network");
+  const data = (await res.json()) as { products?: OffProduct[] };
+  return (data.products ?? []).map((p) => mapOffProduct(p)).filter((f): f is FoodSnapshot => !!f);
 }
