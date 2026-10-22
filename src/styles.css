@@ -962,3 +962,69 @@ code {
   justify-content: space-between;
   text-align: left;
 }
+
+/* Wochentage & Tagesziele */
+.weekday-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.weekday-picker button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 12px;
+  padding: 10px 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.weekday-picker button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.week-preview {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  text-align: center;
+}
+
+.week-preview > div {
+  background: var(--card-2);
+  border-radius: 10px;
+  padding: 6px 0;
+}
+
+.week-preview > div.special {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.week-preview span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.week-preview b {
+  font-size: 13px;
+}
+
+/* Fasten-Status im Tagebuch */
+.fasting-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--card-2);
+  overflow: hidden;
+  margin: 8px 0 4px;
+}
+
+.fasting-bar > div {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}

@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { parseHealthText } from "./health";
-import { addDays, bmr, calorieTarget, macroGrams, scale, sum } from "./nutrition";
+import {
+  addDays,
+  bmr,
+  calorieTarget,
+  dayFactor,
+  eatWindowMinutes,
+  fastingStatus,
+  goalsForDay,
+  macroGrams,
+  scale,
+  sum,
+} from "./nutrition";
 import { mapOffProduct } from "./off";
 import { searchItems, toItems } from "./catalog";
 
@@ -109,5 +120,52 @@ describe("Produktliste", () => {
   it("übernimmt Nährwerte und Einheit", () => {
     const f = searchItems(list, "haltbare")[0];
     expect(f).toMatchObject({ unit: "ml", servingSize: 250, source: "off", per100: { kcal: 47, fat: 1.5 } });
+  });
+});
+
+describe("Tagesziele", () => {
+  const goals = { kcal: 2000, protein: 150, carbs: 200, fat: 67, waterMl: 2500 };
+  const weekend = { enabled: true, days: [0, 6], percent: 20, balance: true };
+
+  it("erhöht das Ziel an den gewählten Tagen", () => {
+    // 2026-10-24 ist ein Samstag
+    expect(goalsForDay(goals, weekend, "2026-10-24")).toMatchObject({ kcal: 2400, protein: 180 });
+  });
+
+  it("gleicht die übrigen Tage aus, sodass die Woche gleich bleibt", () => {
+    const week = [0, 1, 2, 3, 4, 5, 6].reduce((s, d) => s + dayFactor(weekend, d), 0);
+    expect(week).toBeCloseTo(7);
+    // 2026-10-21 ist ein Mittwoch: (7 − 2 × 1,2) / 5 = 0,92
+    expect(goalsForDay(goals, weekend, "2026-10-21").kcal).toBe(1840);
+  });
+
+  it("lässt die übrigen Tage ohne Ausgleich unverändert", () => {
+    expect(goalsForDay(goals, { ...weekend, balance: false }, "2026-10-21").kcal).toBe(2000);
+  });
+
+  it("ist ohne Aktivierung neutral", () => {
+    expect(goalsForDay(goals, { ...weekend, enabled: false }, "2026-10-24").kcal).toBe(2000);
+  });
+});
+
+describe("Intervallfasten", () => {
+  const at = (h: number, m = 0) => new Date(2026, 9, 22, h, m);
+
+  it("erkennt das Essensfenster", () => {
+    const s = fastingStatus({ eatStart: "12:00", eatEnd: "20:00" }, at(14));
+    expect(s).toMatchObject({ phase: "eat", minutesLeft: 360, nextChange: "20:00" });
+    expect(s.progress).toBeCloseTo(0.25);
+  });
+
+  it("erkennt das Fasten über Mitternacht", () => {
+    const s = fastingStatus({ eatStart: "12:00", eatEnd: "20:00" }, at(2));
+    expect(s).toMatchObject({ phase: "fast", minutesLeft: 600, nextChange: "12:00" });
+    expect(s.progress).toBeCloseTo(6 / 16);
+  });
+
+  it("unterstützt Essensfenster über Mitternacht", () => {
+    expect(eatWindowMinutes({ eatStart: "18:00", eatEnd: "02:00" })).toBe(480);
+    expect(fastingStatus({ eatStart: "18:00", eatEnd: "02:00" }, at(1)).phase).toBe("eat");
+    expect(fastingStatus({ eatStart: "18:00", eatEnd: "02:00" }, at(10)).phase).toBe("fast");
   });
 });

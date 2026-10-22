@@ -172,3 +172,121 @@ export function formatDayLabel(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" });
 }
+
+// ---------- Abweichende Tagesziele (z. B. Wochenende) ----------
+
+export interface DayAdjust {
+  enabled: boolean;
+  /** Wochentage mit abweichendem Ziel, 0 = Sonntag … 6 = Samstag */
+  days: number[];
+  /** Abweichung in Prozent, z. B. 20 = +20 %, -10 = −10 % */
+  percent: number;
+  /** Übrige Tage so anpassen, dass die Wochensumme gleich bleibt */
+  balance: boolean;
+}
+
+export const DEFAULT_DAY_ADJUST: DayAdjust = { enabled: false, days: [0, 6], percent: 20, balance: true };
+
+export const WEEKDAYS = [
+  { id: 1, short: "Mo" },
+  { id: 2, short: "Di" },
+  { id: 3, short: "Mi" },
+  { id: 4, short: "Do" },
+  { id: 5, short: "Fr" },
+  { id: 6, short: "Sa" },
+  { id: 0, short: "So" },
+];
+
+export function weekdayOf(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** Faktor für das Tagesziel an einem Wochentag (1 = Grundziel). */
+export function dayFactor(adj: DayAdjust | undefined, weekday: number): number {
+  if (!adj?.enabled || !adj.days.length || adj.days.length === 7 || !adj.percent) return 1;
+  const special = 1 + adj.percent / 100;
+  if (adj.days.includes(weekday)) return special;
+  if (!adj.balance) return 1;
+  const k = adj.days.length;
+  return Math.max(0, (7 - k * special) / (7 - k));
+}
+
+/** Ziele für ein bestimmtes Datum, inkl. Tagesabweichung. */
+export function goalsForDay(goals: Goals, adj: DayAdjust | undefined, iso: string): Goals & { factor: number } {
+  const factor = dayFactor(adj, weekdayOf(iso));
+  if (factor === 1) return { ...goals, factor };
+  return {
+    kcal: Math.round((goals.kcal * factor) / 10) * 10,
+    protein: Math.round(goals.protein * factor),
+    carbs: Math.round(goals.carbs * factor),
+    fat: Math.round(goals.fat * factor),
+    waterMl: goals.waterMl,
+    factor,
+  };
+}
+
+// ---------- Intervallfasten ----------
+
+export interface Fasting {
+  enabled: boolean;
+  /** Beginn des Essensfensters, "HH:MM" */
+  eatStart: string;
+  /** Ende des Essensfensters, "HH:MM" */
+  eatEnd: string;
+}
+
+export const DEFAULT_FASTING: Fasting = { enabled: false, eatStart: "12:00", eatEnd: "20:00" };
+
+export const FASTING_PRESETS = [
+  { label: "16:8", eatHours: 8 },
+  { label: "18:6", eatHours: 6 },
+  { label: "14:10", eatHours: 10 },
+  { label: "20:4", eatHours: 4 },
+];
+
+const toMin = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return ((h || 0) * 60 + (m || 0)) % 1440;
+};
+
+export const fromMin = (min: number) => {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+
+/** Länge des Essensfensters in Minuten (Fenster über Mitternacht erlaubt). */
+export function eatWindowMinutes(f: Pick<Fasting, "eatStart" | "eatEnd">): number {
+  const d = (toMin(f.eatEnd) - toMin(f.eatStart) + 1440) % 1440;
+  return d === 0 ? 1440 : d;
+}
+
+export interface FastingStatus {
+  phase: "eat" | "fast";
+  /** Minuten bis zum Phasenwechsel */
+  minutesLeft: number;
+  /** Fortschritt der aktuellen Phase, 0…1 */
+  progress: number;
+  /** Uhrzeit des nächsten Wechsels, "HH:MM" */
+  nextChange: string;
+}
+
+export function fastingStatus(f: Pick<Fasting, "eatStart" | "eatEnd">, now: Date): FastingStatus {
+  const start = toMin(f.eatStart);
+  const eatLen = eatWindowMinutes(f);
+  const cur = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const sinceStart = (cur - start + 1440) % 1440;
+  if (sinceStart < eatLen) {
+    return { phase: "eat", minutesLeft: eatLen - sinceStart, progress: sinceStart / eatLen, nextChange: f.eatEnd };
+  }
+  const fastLen = 1440 - eatLen;
+  const intoFast = sinceStart - eatLen;
+  return { phase: "fast", minutesLeft: fastLen - intoFast, progress: intoFast / fastLen, nextChange: f.eatStart };
+}
+
+export function formatDuration(min: number): string {
+  const total = Math.max(0, Math.round(min));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
+}

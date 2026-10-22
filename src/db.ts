@@ -1,5 +1,9 @@
 import Dexie, { type EntityTable } from "dexie";
 import {
+  DEFAULT_DAY_ADJUST,
+  DEFAULT_FASTING,
+  type DayAdjust,
+  type Fasting,
   type FoodSnapshot,
   type Goals,
   type MacroSplit,
@@ -64,6 +68,8 @@ export interface Settings {
   aiModel: string;
   addActiveKcalToBudget: boolean;
   lastBackupAt?: number;
+  dayAdjust: DayAdjust;
+  fasting: Fasting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -72,6 +78,8 @@ export const DEFAULT_SETTINGS: Settings = {
   goals: { kcal: 2000, protein: 150, carbs: 200, fat: 67, waterMl: 2500 },
   aiModel: "claude-opus-5-5",
   addActiveKcalToBudget: false,
+  dayAdjust: DEFAULT_DAY_ADJUST,
+  fasting: DEFAULT_FASTING,
 };
 
 export const db = new Dexie("kalorientracker") as Dexie & {
@@ -103,8 +111,11 @@ export async function getSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(patch: Partial<Settings>) {
-  const current = await getSettings();
-  await db.settings.put({ ...current, ...patch, id: "main" });
+  // In einer Transaktion, damit schnell aufeinanderfolgende Änderungen sich nicht überschreiben.
+  await db.transaction("rw", db.settings, async () => {
+    const current = await getSettings();
+    await db.settings.put({ ...current, ...patch, id: "main" });
+  });
 }
 
 /** Schlüssel zur Wiedererkennung eines Lebensmittels im lokalen Katalog. */

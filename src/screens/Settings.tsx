@@ -8,6 +8,14 @@ import { importBackup, shareOrDownloadBackup } from "../lib/backup";
 import { SHORTCUT_NAME } from "../lib/health";
 import {
   ACTIVITY,
+  type DayAdjust,
+  FASTING_PRESETS,
+  type Fasting,
+  WEEKDAYS,
+  dayFactor,
+  eatWindowMinutes,
+  formatDuration,
+  fromMin,
   type Activity,
   type GoalType,
   type Profile,
@@ -28,6 +36,8 @@ export function Settings() {
     <div>
       <h1>Einstellungen</h1>
       <GoalsCard settings={settings} latestKg={latestWeight?.kg} />
+      <DayGoalsCard settings={settings} />
+      <FastingCard settings={settings} />
       <AiCard settings={settings} />
       <HealthCard settings={settings} />
       <BackupCard settings={settings} />
@@ -193,6 +203,131 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
       <button className="btn primary block" onClick={save} disabled={splitSum !== 100}>
         {saved ? "Gespeichert ✓" : "Ziele speichern"}
       </button>
+    </div>
+  );
+}
+
+// ---------- Abweichende Tagesziele ----------
+
+function DayGoalsCard({ settings }: { settings: S }) {
+  const adj = settings.dayAdjust;
+  const set = (patch: Partial<DayAdjust>) => saveSettings({ dayAdjust: { ...adj, ...patch } });
+  const toggleDay = (d: number) =>
+    set({ days: adj.days.includes(d) ? adj.days.filter((x) => x !== d) : [...adj.days, d].sort() });
+  const base = settings.goals.kcal;
+  const otherFactor = dayFactor(adj, [0, 1, 2, 3, 4, 5, 6].find((d) => !adj.days.includes(d)) ?? 1);
+  const tooMany = adj.days.length === 7;
+
+  return (
+    <div className="card stack">
+      <div className="row between">
+        <h2>📅 Abweichende Tage</h2>
+        <Toggle checked={adj.enabled} onChange={(v) => set({ enabled: v })} />
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>
+        Z. B. am Wochenende mehr essen: An den gewählten Tagen gilt ein höheres (oder niedrigeres) Kalorienziel.
+      </p>
+      {adj.enabled && (
+        <>
+          <div className="weekday-picker">
+            {WEEKDAYS.map((d) => (
+              <button key={d.id} className={adj.days.includes(d.id) ? "active" : ""} onClick={() => toggleDay(d.id)}>
+                {d.short}
+              </button>
+            ))}
+          </div>
+          {tooMany && <div className="notice warn small">Bei allen 7 Tagen gibt es keine Abweichung – dann einfach das Grundziel ändern.</div>}
+          <WheelField
+            label="Abweichung an diesen Tagen"
+            value={adj.percent}
+            onChange={(v) => v !== undefined && set({ percent: v })}
+            format={(v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)} %`}
+            min={-50}
+            max={100}
+            step={5}
+            unit="%"
+          />
+          <div className="row between">
+            <div className="grow small">
+              Woche ausgleichen
+              <div className="muted">Die übrigen Tage werden so angepasst, dass die Wochensumme gleich bleibt.</div>
+            </div>
+            <Toggle checked={adj.balance} onChange={(v) => set({ balance: v })} />
+          </div>
+          {!tooMany && adj.days.length > 0 && (
+            <div className="week-preview">
+              {WEEKDAYS.map((d) => {
+                const kcal = Math.round((base * dayFactor(adj, d.id)) / 10) * 10;
+                return (
+                  <div key={d.id} className={adj.days.includes(d.id) ? "special" : ""}>
+                    <span>{d.short}</span>
+                    <b>{fmt(kcal)}</b>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {adj.balance && otherFactor < 0.8 && (
+            <div className="notice warn small">
+              Die übrigen Tage liegen dann {fmt((1 - otherFactor) * 100)} % unter dem Grundziel. Vielleicht eine kleinere Abweichung wählen.
+            </div>
+          )}
+          <p className="muted small" style={{ margin: 0 }}>
+            Grundziel: {fmt(base)} kcal. Eiweiß, Kohlenhydrate und Fett ändern sich im selben Verhältnis.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Intervallfasten ----------
+
+function FastingCard({ settings }: { settings: S }) {
+  const f = settings.fasting;
+  const set = (patch: Partial<Fasting>) => saveSettings({ fasting: { ...f, ...patch } });
+  const eat = eatWindowMinutes(f);
+  const activePreset = FASTING_PRESETS.find((p) => p.eatHours * 60 === eat)?.label;
+
+  return (
+    <div className="card stack">
+      <div className="row between">
+        <h2>⏱️ Intervallfasten</h2>
+        <Toggle checked={f.enabled} onChange={(v) => set({ enabled: v })} />
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>
+        Lege fest, wann du isst. Im Tagebuch siehst du dann, ob gerade Essenszeit oder Fastenzeit ist und wie lange noch.
+      </p>
+      {f.enabled && (
+        <>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {FASTING_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                className={`chip${activePreset === p.label ? " active" : ""}`}
+                onClick={() => set({ eatEnd: fromMin(Number(f.eatStart.slice(0, 2)) * 60 + Number(f.eatStart.slice(3)) + p.eatHours * 60) })}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid2">
+            <label className="field">
+              <span>Essen ab</span>
+              <input className="input" type="time" value={f.eatStart} onChange={(e) => e.target.value && set({ eatStart: e.target.value })} />
+            </label>
+            <label className="field">
+              <span>Essen bis</span>
+              <input className="input" type="time" value={f.eatEnd} onChange={(e) => e.target.value && set({ eatEnd: e.target.value })} />
+            </label>
+          </div>
+          <div className="notice small">
+            🍽️ Essensfenster {formatDuration(eat).replace(" 00 min", "")} · 🌙 Fasten {formatDuration(1440 - eat).replace(" 00 min", "")}
+            <br />
+            Fasten von {f.eatEnd} bis {f.eatStart} Uhr.
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { SwipeRow } from "../components/SwipeRow";
 import { FoodThumb, MacroBars, Ring, Sheet } from "../components/ui";
 import { type Entry, addEntry, copyMeal, db, getSettings, uid, updateEntry } from "../db";
 import { parseHealthText, shortcutUrl } from "../lib/health";
-import { MEALS, type Meal, addDays, fmt, formatDayLabel, sum, todayISO } from "../lib/nutrition";
+import { MEALS, type Meal, addDays, fmt, formatDayLabel, goalsForDay, sum, todayISO } from "../lib/nutrition";
+import { FastingStatusCard } from "../components/FastingCard";
 import { AddFood } from "./AddFood";
 
 export function Diary({
@@ -34,7 +35,8 @@ export function Diary({
 
   if (!settings || !entries) return null;
 
-  const goals = settings.goals;
+  const goals = goalsForDay(settings.goals, settings.dayAdjust, date);
+  const dayPct = Math.round((goals.factor - 1) * 100);
   const total = sum(entries.map((e) => e.nutrients));
   const burned = settings.addActiveKcalToBudget ? (health?.activeKcal ?? 0) : 0;
   const budget = goals.kcal + burned;
@@ -119,7 +121,15 @@ export function Diary({
           </div>
         </div>
         <MacroBars total={total} goals={goals} />
+        {dayPct !== 0 && (
+          <div className="small muted" style={{ textAlign: "center", marginTop: 12 }}>
+            📅 Tagesziel heute {fmt(goals.kcal)} kcal ({dayPct > 0 ? "+" : "−"}
+            {Math.abs(dayPct)} %{settings.dayAdjust.days.includes(new Date(date + "T12:00").getDay()) ? "" : ", Ausgleich"})
+          </div>
+        )}
       </div>
+
+      {settings.fasting.enabled && date === todayISO() && <FastingStatusCard fasting={settings.fasting} />}
 
       {MEALS.map((m) => {
         const list = byMeal(m.id);
