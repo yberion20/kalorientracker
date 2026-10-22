@@ -10,7 +10,8 @@ import {
 } from "chart.js";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NumberInput, Sheet } from "../components/ui";
+import { Sheet } from "../components/ui";
+import { NumberWheel } from "../components/Wheel";
 import { type Weight as W, db, getSettings } from "../db";
 import { addDays, fmt, todayISO } from "../lib/nutrition";
 
@@ -126,7 +127,7 @@ export function Weight() {
 
 function WeightForm({ initial, onDone }: { initial: W; onDone: () => void }) {
   const [date, setDate] = useState(initial.date);
-  const [kg, setKg] = useState<number | "">(initial.kg);
+  const [kg, setKg] = useState<number>(initial.kg);
   const exists = useLiveQuery(() => db.weights.get(initial.date), [initial.date]);
   return (
     <div className="stack">
@@ -134,16 +135,13 @@ function WeightForm({ initial, onDone }: { initial: W; onDone: () => void }) {
         <span>Datum</span>
         <input className="input" type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
       </label>
-      <label className="field">
-        <span>Gewicht (kg)</span>
-        <NumberInput value={kg} onChange={setKg} autoFocus />
-      </label>
+      <NumberWheel value={kg} onChange={setKg} min={30} max={250} step={0.1} unit="kg" />
       <button
         className="btn primary block"
         disabled={!kg || !date}
         onClick={async () => {
           if (exists && date !== initial.date) await db.weights.delete(initial.date);
-          await db.weights.put({ date, kg: kg as number });
+          await db.weights.put({ date, kg });
           onDone();
         }}
       >

@@ -405,18 +405,47 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
-  border-top: 1px solid var(--line);
+  padding: 10px 16px;
   width: 100%;
   background: none;
-  border-left: 0;
-  border-right: 0;
-  border-bottom: 0;
+  border: 0;
   text-align: left;
 }
 
-.entry:first-child {
-  border-top: 0;
+/* Wischen zum Löschen */
+.swipe-row {
+  position: relative;
+  overflow: hidden;
+  margin: 0 -16px;
+}
+
+.swipe-row + .swipe-row {
+  border-top: 1px solid var(--line);
+}
+
+.swipe-content {
+  position: relative;
+  background: var(--card);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.swipe-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border: 0;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 18px;
 }
 
 .entry .kcal {
@@ -827,4 +856,75 @@ code {
   border-radius: 6px;
   padding: 1px 5px;
   font-size: 13px;
+}
+
+/* Wählrad */
+.wheel {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 0 16px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent);
+}
+
+.wheel-band {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 50%;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 10px;
+  background: var(--card-2);
+  pointer-events: none;
+}
+
+.wheel-col {
+  position: relative;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.wheel-col::-webkit-scrollbar {
+  display: none;
+}
+
+.wheel-item {
+  height: 40px;
+  line-height: 40px;
+  font-size: 24px;
+  scroll-snap-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wheel-sep,
+.wheel-unit {
+  position: relative;
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.wheel-unit {
+  font-size: 18px;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.wheel-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
 }

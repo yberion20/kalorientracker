@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
-import { NumberInput, Toggle } from "../components/ui";
+import { Toggle } from "../components/ui";
+import { WheelField } from "../components/Wheel";
 import { type Settings as S, db, getSettings, saveSettings } from "../db";
 import { AI_MODELS, testKey } from "../lib/ai";
 import { importBackup, shareOrDownloadBackup } from "../lib/backup";
@@ -51,8 +52,8 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
   };
   const [p, setP] = useState<Profile>({ ...p0, weightKg: latestKg ?? p0.weightKg });
   const [split, setSplit] = useState(settings.split);
-  const [kcal, setKcal] = useState<number | "">(settings.goals.kcal);
-  const [water, setWater] = useState<number | "">(settings.goals.waterMl / 1000);
+  const [kcal, setKcal] = useState<number>(settings.goals.kcal);
+  const [water, setWater] = useState<number>(settings.goals.waterMl / 1000);
   const [saved, setSaved] = useState(false);
 
   const suggested = calorieTarget(p);
@@ -65,7 +66,7 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
     await saveSettings({
       profile: p,
       split,
-      goals: { kcal: kcal || suggested, ...grams, waterMl: Math.round((water || 2.5) * 1000) },
+      goals: { kcal, ...grams, waterMl: Math.round(water * 1000) },
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -82,22 +83,28 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
         ))}
       </div>
       <div className="grid2">
-        <label className="field">
-          <span>Alter</span>
-          <NumberInput value={p.age} onChange={(v) => set("age", v || 0)} />
-        </label>
-        <label className="field">
-          <span>Größe (cm)</span>
-          <NumberInput value={p.heightCm} onChange={(v) => set("heightCm", v || 0)} />
-        </label>
-        <label className="field">
-          <span>Gewicht (kg)</span>
-          <NumberInput value={p.weightKg} onChange={(v) => set("weightKg", v || 0)} />
-        </label>
-        <label className="field">
-          <span>Zielgewicht (kg)</span>
-          <NumberInput value={p.targetWeightKg ?? ""} onChange={(v) => set("targetWeightKg", v || undefined)} />
-        </label>
+        <WheelField label="Alter" value={p.age} onChange={(v) => set("age", v ?? p.age)} min={14} max={100} unit="Jahre" />
+        <WheelField label="Größe" value={p.heightCm} onChange={(v) => set("heightCm", v ?? p.heightCm)} min={120} max={230} unit="cm" />
+        <WheelField
+          label="Gewicht"
+          value={p.weightKg}
+          onChange={(v) => set("weightKg", v ?? p.weightKg)}
+          min={30}
+          max={250}
+          step={0.1}
+          unit="kg"
+        />
+        <WheelField
+          label="Zielgewicht"
+          value={p.targetWeightKg}
+          onChange={(v) => set("targetWeightKg", v)}
+          defaultValue={Math.round(p.weightKg - (p.goal === "gain" ? -5 : 5))}
+          optional
+          min={30}
+          max={250}
+          step={0.1}
+          unit="kg"
+        />
       </div>
       <label className="field">
         <span>Aktivität (ohne gesondert erfasste Workouts)</span>
@@ -142,14 +149,17 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
       </div>
 
       <div className="grid2">
-        <label className="field">
-          <span>Kalorienziel (kcal)</span>
-          <NumberInput value={kcal} onChange={setKcal} />
-        </label>
-        <label className="field">
-          <span>Wasserziel (Liter)</span>
-          <NumberInput value={water} onChange={setWater} />
-        </label>
+        <WheelField
+          label="Kalorienziel"
+          value={kcal}
+          onChange={(v) => setKcal(v ?? kcal)}
+          defaultValue={suggested}
+          min={1000}
+          max={5000}
+          step={10}
+          unit="kcal"
+        />
+        <WheelField label="Wasserziel" value={water} onChange={(v) => setWater(v ?? water)} min={0.5} max={6} step={0.25} unit="l" />
       </div>
 
       <div className="section-title" style={{ margin: "6px 0 0" }}>
@@ -163,17 +173,24 @@ function GoalsCard({ settings, latestKg }: { settings: S; latestKg?: number }) {
             ["fat", "Fett", "var(--fat)"],
           ] as const
         ).map(([k, l, c]) => (
-          <label className="field" key={k}>
-            <span style={{ color: c, fontWeight: 600 }}>{l} %</span>
-            <NumberInput value={split[k]} onChange={(v) => setSplit((s) => ({ ...s, [k]: v || 0 }))} />
-            <span className="small muted" style={{ marginTop: 4 }}>
+          <div key={k}>
+            <WheelField
+              label={`${l} %`}
+              value={split[k]}
+              onChange={(v) => setSplit((s) => ({ ...s, [k]: v ?? s[k] }))}
+              format={(v) => `${v} %`}
+              min={0}
+              max={80}
+              unit="%"
+            />
+            <span className="small muted" style={{ display: "block", marginTop: 4, color: c }}>
               = {grams[k]} g
             </span>
-          </label>
+          </div>
         ))}
       </div>
       {splitSum !== 100 && <div className="notice warn small">Die Summe ist {splitSum} % – sie sollte 100 % ergeben.</div>}
-      <button className="btn primary block" onClick={save} disabled={splitSum !== 100 || !kcal}>
+      <button className="btn primary block" onClick={save} disabled={splitSum !== 100}>
         {saved ? "Gespeichert ✓" : "Ziele speichern"}
       </button>
     </div>

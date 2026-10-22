@@ -1,6 +1,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { AmountSheet } from "../components/AmountSheet";
+import { SwipeRow } from "../components/SwipeRow";
 import { FoodThumb, MacroBars, Ring, Sheet } from "../components/ui";
 import { type Entry, addEntry, copyMeal, db, getSettings, uid, updateEntry } from "../db";
 import { parseHealthText, shortcutUrl } from "../lib/health";
@@ -29,6 +30,7 @@ export function Diary({
   const [mealName, setMealName] = useState("");
   const [healthMsg, setHealthMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ entry: Entry; timer: number } | null>(null);
 
   if (!settings || !entries) return null;
 
@@ -41,6 +43,13 @@ export function Diary({
   // Erst erinnern, wenn die App seit einer Woche genutzt wird und das letzte Backup >14 Tage her ist.
   const usedForAWeek = !!firstEntry && Date.now() - firstEntry.createdAt > 7 * 86400_000;
   const backupDue = usedForAWeek && (!settings.lastBackupAt || Date.now() - settings.lastBackupAt > 14 * 86400_000);
+
+  const deleteWithUndo = async (e: Entry) => {
+    await db.entries.delete(e.id);
+    if (undo) clearTimeout(undo.timer);
+    const timer = window.setTimeout(() => setUndo(null), 5000);
+    setUndo({ entry: e, timer });
+  };
 
   const setWater = (ml: number) => db.water.put({ date, ml: Math.max(0, ml) });
 
@@ -134,9 +143,9 @@ export function Diary({
             {list.length > 0 && (
               <div className="entries">
                 {list.map((e) => (
+                  <SwipeRow key={e.id} onDelete={() => deleteWithUndo(e)}>
                   <button
                     className="entry"
-                    key={e.id}
                     onClick={() => {
                       setEditMeal(e.meal);
                       setEditing(e);
@@ -152,6 +161,7 @@ export function Diary({
                     </div>
                     <span className="kcal">{fmt(e.nutrients.kcal)} kcal</span>
                   </button>
+                  </SwipeRow>
                 ))}
               </div>
             )}
@@ -226,9 +236,24 @@ export function Diary({
         </div>
       </div>
 
-      {notice && (
+      {notice && !undo && (
         <div className="update-banner" style={{ zIndex: 35 }}>
           {notice}
+        </div>
+      )}
+      {undo && (
+        <div className="update-banner" style={{ zIndex: 35 }}>
+          <span className="grow ellipsis">„{undo.entry.food.name}“ gelöscht</span>
+          <button
+            className="btn small primary"
+            onClick={async () => {
+              clearTimeout(undo.timer);
+              await db.entries.add(undo.entry);
+              setUndo(null);
+            }}
+          >
+            Rückgängig
+          </button>
         </div>
       )}
 
@@ -257,8 +282,9 @@ export function Diary({
           setEditing(null);
         }}
         onDelete={async () => {
-          await db.entries.delete(editing!.id);
+          const e = editing!;
           setEditing(null);
+          await deleteWithUndo(e);
         }}
       />
 
