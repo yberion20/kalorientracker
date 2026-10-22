@@ -1,9 +1,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AiPanel } from "../components/AiPanel";
+import { AiPanel, PhotoAnalysis } from "../components/AiPanel";
 import { AmountSheet, defaultAmount, sourceLabel } from "../components/AmountSheet";
 import { CustomFoodForm, QuickAddForm } from "../components/CustomFoodForm";
-import { Scanner } from "../components/Scanner";
+import { type CapturedPhoto, Scanner } from "../components/Scanner";
 import { FoodThumb, Sheet } from "../components/ui";
 import { type SavedMeal, db, ensureFood, snapshotOf } from "../db";
 import { type FoodSnapshot, fmt, scale, sum } from "../lib/nutrition";
@@ -53,8 +53,8 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "search", label: "🔎 Suche" },
-    { id: "scan", label: "▥ Scannen" },
-    { id: "ai", label: "✨ KI" },
+    { id: "scan", label: "📷 Kamera" },
+    { id: "ai", label: "✨ Beschreiben" },
     ...(withSavedMeals ? [{ id: "meals" as Tab, label: "🍱 Mahlzeiten" }] : []),
     { id: "custom", label: "✏️ Eigenes" },
   ];
@@ -70,7 +70,7 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
       </div>
 
       {tab === "search" && <SearchTab onPick={setPicked} />}
-      {tab === "scan" && <ScanTab onPick={setPicked} />}
+      {tab === "scan" && <CameraTab onPick={setPicked} onAdd={(items) => add(items)} goToSettings={goToSettings} />}
       {tab === "ai" && <AiPanel goToSettings={goToSettings} onAdd={(items) => add(items)} />}
       {tab === "meals" && <SavedMealsTab onAdd={add} />}
       {tab === "custom" && <CustomTab onPick={setPicked} onQuick={(f) => add([{ food: f, amount: 100 }])} />}
@@ -238,32 +238,47 @@ function FoodList({ foods, onPick }: { foods: FoodSnapshot[]; onPick: (f: FoodSn
   );
 }
 
-// ---------- Scannen ----------
+// ---------- Kamera: Barcode oder Foto für die KI ----------
 
-function ScanTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
+function CameraTab({
+  onPick,
+  onAdd,
+  goToSettings,
+}: {
+  onPick: (f: FoodSnapshot) => void;
+  onAdd: (items: { food: FoodSnapshot; amount: number }[]) => void;
+  goToSettings?: () => void;
+}) {
   const [code, setCode] = useState<string | null>(null);
   const [manual, setManual] = useState("");
-  const [state, setState] = useState<"scan" | "loading" | "notfound" | "error">("scan");
+  const [state, setState] = useState<"live" | "loading" | "notfound" | "error" | "custom">("live");
   const [msg, setMsg] = useState("");
-  const [scanKey, setScanKey] = useState(0);
+  const [tip, setTip] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
+  const [camKey, setCamKey] = useState(0);
+
+  const backToCamera = (t: string | null = null) => {
+    setTip(t);
+    setState("live");
+    setCamKey((k) => k + 1);
+  };
 
   const handle = useCallback(
     async (ean: string) => {
       setCode(ean);
+      setTip(null);
       setState("loading");
       // Zuerst lokal (offline-fähig, auch eigene Lebensmittel mit EAN).
       const local = await db.foods.where("ean").equals(ean).first();
       if (local) {
-        setState("scan");
-        setScanKey((k) => k + 1);
+        backToCamera();
         onPick(snapshotOf(local));
         return;
       }
       try {
         const food = await lookupBarcode(ean);
         await ensureFood(food);
-        setState("scan");
-        setScanKey((k) => k + 1);
+        backToCamera();
         onPick(food);
       } catch (e) {
         if (e instanceof OffError && e.kind !== "network") {
@@ -278,31 +293,70 @@ function ScanTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
     [onPick],
   );
 
-  if (state === "notfound" && code) {
+  if (photo)
+    return (
+      <PhotoAnalysis
+        photo={photo}
+        onAdd={onAdd}
+        goToSettings={goToSettings}
+        onDone={() => {
+          setPhoto(null);
+          backToCamera();
+        }}
+      />
+    );
+
+  if (state === "notfound" && code)
     return (
       <div className="stack">
         <div className="notice warn">
-          {msg} (EAN {code}). Du kannst es selbst anlegen, beim nächsten Scan wird es dann erkannt.
+          {msg} (EAN {code})
         </div>
-        <CustomFoodForm
-          initial={{ ean: code }}
-          onSave={async (f) => {
-            await ensureFood(f);
-            setState("scan");
-            setScanKey((k) => k + 1);
-            onPick(f);
-          }}
-        />
-        <button className="btn block" onClick={() => setState("scan")}>
+        <button
+          className="btn primary block"
+          onClick={() => backToCamera("Fotografiere das Produkt – am besten mit lesbarer Nährwerttabelle – und tippe auf den Auslöser.")}
+        >
+          📸 Foto aufnehmen, KI schätzt die Werte
+        </button>
+        <button className="btn block" onClick={() => setState("custom")}>
+          ✏️ Selbst anlegen
+        </button>
+        <button className="btn block" onClick={() => backToCamera()}>
           Erneut scannen
         </button>
       </div>
     );
-  }
+
+  if (state === "custom" && code)
+    return (
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>
+          Beim nächsten Scan von EAN {code} wird das Lebensmittel dann erkannt.
+        </p>
+        <CustomFoodForm
+          initial={{ ean: code }}
+          onSave={async (f) => {
+            await ensureFood(f);
+            backToCamera();
+            onPick(f);
+          }}
+        />
+        <button className="btn block" onClick={() => backToCamera()}>
+          Abbrechen
+        </button>
+      </div>
+    );
 
   return (
     <div className="stack">
-      {state === "scan" && <Scanner key={scanKey} onDetected={handle} />}
+      {tip && <div className="notice">{tip}</div>}
+      {state === "live" && (
+        <Scanner key={camKey} onDetected={handle} onCapture={setPhoto}>
+          <p className="muted small" style={{ margin: 0, textAlign: "center" }}>
+            Barcode wird automatisch erkannt. Für Essen ohne Barcode: Auslöser tippen, die KI analysiert das Foto.
+          </p>
+        </Scanner>
+      )}
       {state === "loading" && (
         <div className="card row" style={{ justifyContent: "center" }}>
           <span className="spinner" /> <span>Suche {code} …</span>
@@ -315,7 +369,7 @@ function ScanTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
             <button className="btn small" onClick={() => code && handle(code)}>
               Nochmal
             </button>
-            <button className="btn small" onClick={() => setState("scan")}>
+            <button className="btn small" onClick={() => backToCamera()}>
               Neu scannen
             </button>
           </div>

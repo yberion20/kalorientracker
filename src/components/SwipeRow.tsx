@@ -27,7 +27,7 @@ export function SwipeRow({ children, onDelete }: { children: ReactNode; onDelete
     <div className="swipe-row" ref={rowRef}>
       <button
         className="swipe-action"
-        style={{ width: Math.max(ACTION_W, -offset) }}
+        style={{ width: Math.max(ACTION_W, -offset), visibility: offset < 0 ? "visible" : "hidden" }}
         onClick={remove}
         tabIndex={offset ? 0 : -1}
         aria-label="Löschen"

@@ -35,6 +35,7 @@ Regeln:
 - Nennt der Nutzer Mengen ("2 Scheiben", "ein großer Teller", "200 g"), rechne diese in g/ml um.
 - Ohne Mengenangabe nimm eine übliche Portion an.
 - Auf Fotos schätze die Menge anhand von Tellergröße, Besteck und Verpackungen. Sichtbare Öle, Saucen und Dressings als eigene Position aufführen.
+- Ist eine Verpackung mit Nährwerttabelle lesbar, übernimm die Werte pro 100 g/ml exakt von dort.
 - Gemischte Gerichte (z. B. Lasagne) als eine Position, wenn sich die Komponenten nicht sinnvoll trennen lassen.
 - Ist auf dem Bild kein Essen zu sehen, gib eine leere Liste zurück und erkläre es in notes.
 Antworte ausschließlich auf Deutsch.`;
