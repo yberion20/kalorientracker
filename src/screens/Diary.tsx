@@ -123,7 +123,7 @@ export function Diary({
         <MacroBars total={total} goals={goals} />
         {dayPct !== 0 && (
           <div className="small muted" style={{ textAlign: "center", marginTop: 12 }}>
-            📅 Tagesziel heute {fmt(goals.kcal)} kcal ({dayPct > 0 ? "+" : "−"}
+            📅 Tagesziel {fmt(goals.kcal)} kcal ({dayPct > 0 ? "+" : "−"}
             {Math.abs(dayPct)} %{settings.dayAdjust.days.includes(new Date(date + "T12:00").getDay()) ? "" : ", Ausgleich"})
           </div>
         )}
