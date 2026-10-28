@@ -37,3 +37,18 @@ npm run build      # Produktions-Build nach dist/
 1. Link in **Safari** öffnen.
 2. **Teilen › Zum Home-Bildschirm**.
 3. Die App über das neue Icon starten. Updates kommen automatisch, die App zeigt dann „Neue Version, neu laden“.
+
+## Apple Health per Kurzbefehl
+
+Web-Apps dürfen Health nicht direkt lesen. Ein Kurzbefehl namens **„Kalorien Health“** kopiert die Werte in die Zwischenablage, in der App tippst du dann auf „Einfügen“.
+
+1. Health-App › Schritte › ganz unten **Datenquellen & Zugriff**: die oberste Quelle merken (meist die Apple Watch). Bei Aktivitätsenergie genauso.
+2. Kurzbefehl „Kalorien Health“ anlegen:
+   - **Health-Messungen suchen**: Typ Schritte, Startdatum ist heute, **Quelle ist [oberste Quelle]**
+   - **Statistik berechnen**: Summe › **Variable festlegen** `Schritte`
+   - **Health-Messungen suchen**: Typ Aktive Energie, Startdatum ist heute, **Quelle ist [oberste Quelle]**
+   - **Statistik berechnen**: Summe › **Variable festlegen** `Kalorien`
+   - **Text**: `Schritte: [Schritte]; Kalorien: [Kalorien]`
+   - **In Zwischenablage kopieren**
+
+**Wichtig:** Ohne den Quellen-Filter zählt der Kurzbefehl iPhone, Apple Watch und andere Apps zusammen. Die Health-App zeigt dagegen nur die Werte der obersten Quelle, deshalb wären die Schritte fast doppelt so hoch. „Gruppieren nach: Tag“ hilft dagegen nicht.

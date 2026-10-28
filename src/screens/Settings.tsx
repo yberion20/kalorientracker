@@ -424,18 +424,24 @@ function HealthCard({ settings }: { settings: S }) {
             App <b>Kurzbefehle</b> öffnen › <b>＋</b> › Name: <code>{SHORTCUT_NAME}</code> (genau so).
           </li>
           <li>
-            Aktion <b>„Health-Messwerte suchen“</b> hinzufügen: Typ <b>Schritte</b>, Filter <b>Startdatum ist heute</b>, und unten <b>Gruppieren nach: Tag</b>. Wichtig: Ohne
-            Gruppieren werden iPhone und Apple Watch doppelt gezählt.
+            Vorher in der <b>Health-App</b> nachsehen: Schritte › ganz unten <b>Datenquellen &amp; Zugriff</b>. Die oberste Quelle
+            merken (meist die Apple Watch). Bei <b>Aktivitätsenergie</b> genauso.
           </li>
           <li>
-            Aktion <b>„Statistik berechnen“</b> (bzw. „Berechnen“ › Summe) auf das Ergebnis anwenden: <b>Summe</b>.
+            Aktion <b>„Health-Messungen suchen“</b> hinzufügen: Typ <b>Schritte</b>, <b>Startdatum ist heute</b>, dazu{" "}
+            <b>Filter hinzufügen › Quelle ist [oberste Quelle]</b>. Wichtig: Ohne diesen Filter zählt der Kurzbefehl iPhone, Watch
+            und andere Apps zusammen und die Werte sind viel zu hoch.
           </li>
           <li>
-            Nochmal <b>„Health-Messwerte suchen“</b>: Typ <b>Aktive Energie</b>, <b>Startdatum ist heute</b>, <b>Gruppieren nach: Tag</b>, danach wieder{" "}
-            <b>Summe</b>.
+            Aktion <b>„Statistik berechnen“</b>: <b>Summe</b> von Health-Messungen, danach <b>„Variable festlegen“</b>: Name{" "}
+            <code>Schritte</code>.
           </li>
           <li>
-            Aktion <b>„Text“</b> mit Inhalt: <code>Schritte: [Summe 1]; Kalorien: [Summe 2]</code> (die Variablen über die Leiste
+            Nochmal <b>„Health-Messungen suchen“</b>: Typ <b>Aktive Energie</b>, <b>Startdatum ist heute</b>,{" "}
+            <b>Quelle ist [oberste Quelle]</b>, danach wieder <b>Summe</b> und <b>„Variable festlegen“</b>: <code>Kalorien</code>.
+          </li>
+          <li>
+            Aktion <b>„Text“</b> mit Inhalt: <code>Schritte: [Schritte]; Kalorien: [Kalorien]</code> (die Variablen über die Leiste
             über der Tastatur einsetzen).
           </li>
           <li>
