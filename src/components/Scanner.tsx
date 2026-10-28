@@ -1,6 +1,7 @@
 import { BarcodeDetector, setZXingModuleOverrides } from "barcode-detector/ponyfill";
 import wasmUrl from "zxing-wasm/reader/zxing_reader.wasm?url";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { acquireCamera, releaseCamera } from "../lib/camera";
 
 // Die WebAssembly-Datei mit ausliefern statt vom CDN laden – so geht der Scanner auch offline.
 setZXingModuleOverrides({
@@ -58,21 +59,18 @@ export function Scanner({
         return;
       }
       try {
-        // Hohe Auflösung, damit Barcodes auch im Hochformat (schmales Bild) genug Pixel haben.
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-          audio: false,
-        });
+        // Einmal freigegebene Kamera wiederverwenden, damit iOS nicht jedes Mal neu fragt.
+        stream = await acquireCamera();
       } catch (e) {
         const name = (e as Error).name;
         setError(
           name === "NotAllowedError"
-            ? "Kein Kamerazugriff. Bitte den Zugriff erlauben (iPhone: Einstellungen › Safari › Kamera)."
+            ? "Kein Kamerazugriff. Bitte beim Nachfragen „Erlauben“ tippen (iPhone: Einstellungen › Apps › Safari › Kamera)."
             : "Die Kamera konnte nicht gestartet werden.",
         );
         return;
       }
-      if (stopped) return stream.getTracks().forEach((t) => t.stop());
+      if (stopped) return releaseCamera();
       const v = videoRef.current!;
       v.srcObject = stream;
       v.setAttribute("playsinline", "true");
@@ -124,7 +122,8 @@ export function Scanner({
     return () => {
       stopped = true;
       cancelAnimationFrame(raf);
-      stream?.getTracks().forEach((t) => t.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+      if (stream) releaseCamera();
     };
   }, []);
 
