@@ -32,8 +32,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,wasm,json}"],
+        // Die große Produktliste nicht vorab laden: Sie wird bei der ersten Suche geholt und dann offline vorgehalten.
+        globIgnores: ["**/products-de.json"],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [
+          {
+            urlPattern: /\/products-de\.json$/,
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "catalog", expiration: { maxEntries: 1 } },
+          },
           {
             urlPattern: /^https:\/\/images\.openfoodfacts\.org\/.*/,
             handler: "CacheFirst",

@@ -21,10 +21,12 @@ type Row = [
 ];
 
 interface Item {
-  food: FoodSnapshot;
-  name: string; // normalisiert
   hay: string; // normalisiert: Name + Marke
+  nameLen: number; // Länge des Namens am Anfang von hay
   rank: number; // 0 = am beliebtesten
+  // Bei über 100.000 Produkten wird das Lebensmittel erst für Treffer gebaut (spart Speicher).
+  row?: Row;
+  food?: FoodSnapshot;
 }
 
 let items: Item[] | null = null;
@@ -34,25 +36,27 @@ export function normalize(s: string) {
   return s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/ß/g, "ss");
 }
 
+function rowToFood([ean, name, brand, kcal, protein, carbs, fat, sugar, unit, serving, servingLabel, pack]: Row): FoodSnapshot {
+  const portions: Portion[] = [];
+  if (serving) portions.push({ label: servingLabel || "Portion", amount: serving });
+  if (pack && pack <= 1000 && pack !== serving) portions.push({ label: "Packung", amount: pack });
+  return {
+    name,
+    brand: brand || undefined,
+    ean,
+    unit,
+    ...(portions.length ? { portions: allPortions({ portions }) } : {}),
+    per100: { kcal, protein, carbs, fat, ...(sugar !== null ? { sugar } : {}) },
+    source: "off",
+  };
+}
+
+const foodOf = (it: Item) => (it.food ??= rowToFood(it.row!));
+
 export function toItems(rows: Row[]): Item[] {
-  return rows.map(([ean, name, brand, kcal, protein, carbs, fat, sugar, unit, serving, servingLabel, pack], rank) => {
-    const portions: Portion[] = [];
-    if (serving) portions.push({ label: servingLabel || "Portion", amount: serving });
-    if (pack && pack <= 1000 && pack !== serving) portions.push({ label: "Packung", amount: pack });
-    return {
-      rank,
-      name: normalize(name),
-      hay: normalize(`${name} ${brand}`),
-      food: {
-        name,
-        brand: brand || undefined,
-        ean,
-        unit,
-        ...(portions.length ? { portions: allPortions({ portions }) } : {}),
-        per100: { kcal, protein, carbs, fat, ...(sugar !== null ? { sugar } : {}) },
-        source: "off",
-      },
-    };
+  return rows.map((row, rank) => {
+    const name = normalize(row[1]);
+    return { rank, nameLen: name.length, hay: row[2] ? `${name} ${normalize(row[2])}` : name, row };
   });
 }
 
@@ -61,7 +65,7 @@ let generic: Item[] | null = null;
 export function genericItems(): Item[] {
   generic ??= GENERIC_FOODS.map((g, rank) => ({
     rank,
-    name: normalize(g.food.name),
+    nameLen: normalize(g.food.name).length,
     hay: normalize(`${g.food.name} ${g.synonyms}`),
     food: g.food,
   }));
@@ -95,10 +99,13 @@ function score(it: Item, tokens: string[]): number {
     s += wholeWord ? 30 : atWord ? 20 : 5;
     // Name beginnt mit dem Suchwort: stark, wenn es ein ganzes Wort ist („Milch …“),
     // schwach bei zusammengesetzten Wörtern („Semmelknödel“ bei „Semmel“).
-    if (it.name.startsWith(t)) s += wholeWord || !/[a-z]/.test(it.name[t.length] ?? "") ? 25 : 8;
+    if (i === 0 && t.length <= it.nameLen) {
+      const next = t.length < it.nameLen ? it.hay[t.length] : "";
+      s += wholeWord || !/[a-z]/.test(next) ? 25 : 8;
+    }
   }
   // Kürzere Namen sind meist die „generischeren“ Treffer (z. B. „Milch“ vor „Alpenvollmilch-Schokolade“).
-  s += Math.max(0, 15 - it.name.length / 3);
+  s += Math.max(0, 15 - it.nameLen / 3);
   return s;
 }
 
@@ -112,5 +119,5 @@ export function searchItems(list: Item[], query: string, limit = 40): FoodSnapsh
   }
   // Beliebtheit fließt mit ein: Top-Produkte leicht bevorzugen.
   hits.sort((a, b) => b.s - b.it.rank / 800 - (a.s - a.it.rank / 800));
-  return hits.slice(0, limit).map((h) => h.it.food);
+  return hits.slice(0, limit).map((h) => foodOf(h.it));
 }

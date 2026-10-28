@@ -230,8 +230,11 @@ function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; 
             <span>Markenprodukte</span>
             {!catalog && !catalogError && <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />}
           </div>
+          {!catalog && !catalogError && (
+            <div className="empty small">Produktliste wird geladen … (beim ersten Mal ca. 8 MB, danach offline verfügbar)</div>
+          )}
           {catalogError && <div className="notice error">Die Produktliste konnte nicht geladen werden. Bitte mit Internet einmal neu öffnen.</div>}
-          {catalog && catalogMatches.length === 0 && <div className="empty small">Keine Treffer in den beliebtesten Produkten.</div>}
+          {catalog && catalogMatches.length === 0 && <div className="empty small">Keine Treffer in der Produktliste.</div>}
           {catalogMatches.length > 0 && <FoodList foods={catalogMatches} onPick={onPick} />}
 
           {query.length >= 3 && (

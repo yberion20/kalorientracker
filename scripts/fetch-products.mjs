@@ -1,27 +1,20 @@
-// Lädt die meistgescannten Produkte in Deutschland aus Open Food Facts
-// (search.openfoodfacts.org) und schreibt eine kompakte Liste für die
-// Sofort-Suche nach public/products-de.json.
+// Lädt den kompletten Open-Food-Facts-Export (CSV, ca. 1,5 GB gepackt), filtert alle in
+// Deutschland verkauften Produkte mit Nährwerten und schreibt eine kompakte Liste für die
+// Sofort-Suche nach public/products-de.json – sortiert nach Beliebtheit (Scans).
 //
-// Aufruf: node scripts/fetch-products.mjs
+// Aufruf: node scripts/fetch-products.mjs [lokale-datei.csv.gz]
 // Format je Produkt: [ean, name, marke, kcal, eiweiß, kh, fett, zucker|null, einheit("g"|"ml"),
 //                     portion|null, portionsbezeichnung|null, packung|null]
 
+import { createReadStream } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 
 const OUT = new URL("../public/products-de.json", import.meta.url);
-const PAGES = 100; // 100 × 100 = 10.000 (Maximum der Such-API)
-const FIELDS = [
-  "code",
-  "product_name",
-  "product_name_de",
-  "brands",
-  "nutriments",
-  "quantity",
-  "product_quantity_unit",
-  "serving_quantity",
-  "serving_size",
-  "product_quantity",
-].join(",");
+const DUMP = "https://static.openfoodfacts.org/data/en.openfoodfacts.org.products.csv.gz";
+// Obergrenze, damit die Datei auf dem iPhone handlich bleibt (ca. 90 Byte je Produkt).
+const LIMIT = Number(process.env.CATALOG_LIMIT ?? 300_000);
 const UA = "Kalorientracker/1.0 (https://github.com/yberion20/kalorientracker)";
 
 const num = (v) => {
@@ -58,6 +51,13 @@ function parseQuantity(text) {
   return single ? { pack: Number(single[1]) * UNIT_FACTOR[single[2]], each: null } : { pack: null, each: null };
 }
 
+// Manche Einträge enthalten HTML-Entities („Vanilla &amp; Topping“).
+const ENT = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+const decode = (t) =>
+  String(t ?? "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e) =>
+    e[0] === "#" ? String.fromCodePoint(parseInt(e.slice(e[1] === "x" || e[1] === "X" ? 2 : 1), e[1]?.toLowerCase() === "x" ? 16 : 10)) : (ENT[e.toLowerCase()] ?? m),
+  );
+
 function map(p) {
   const n = p.nutriments ?? {};
   let kcal = num(n["energy-kcal_100g"]);
@@ -66,10 +66,10 @@ function map(p) {
     if (kj !== undefined) kcal = kj / 4.184;
   }
   if (kcal === undefined || kcal > 950) return null;
-  const name = String(p.product_name_de || p.product_name || "").trim();
+  const name = decode(p.product_name_de || p.product_name).trim();
   if (!name || !/^\d{8,14}$/.test(p.code ?? "")) return null;
   const brands = Array.isArray(p.brands) ? p.brands.join(",") : p.brands;
-  const brand = String(brands ?? "").split(",")[0].trim();
+  const brand = decode(brands).split(",")[0].trim();
   const unitHint = String(p.product_quantity_unit ?? "").toLowerCase();
   const liquid = ["ml", "l", "cl"].includes(unitHint) || /\b\d+([.,]\d+)?\s?(ml|cl|l)\b/i.test(p.quantity ?? "");
   const sugar = num(n["sugars_100g"]);
@@ -95,38 +95,75 @@ function map(p) {
   ];
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function page(i) {
-  const url =
-    `https://search.openfoodfacts.org/search?q=${encodeURIComponent('countries_tags:"en:germany"')}` +
-    `&sort_by=-unique_scans_n&page_size=100&page=${i}&fields=${FIELDS}`;
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    try {
-      const res = await fetch(url, { headers: { "User-Agent": UA } });
-      if (res.ok) return (await res.json()).hits ?? [];
-      console.warn(`Seite ${i}: HTTP ${res.status}`);
-    } catch (e) {
-      console.warn(`Seite ${i}: ${e.message}`);
-    }
-    await sleep(1500 * attempt);
-  }
-  throw new Error(`Seite ${i} konnte nicht geladen werden`);
+async function input() {
+  const local = process.argv[2];
+  if (local) return createReadStream(local).pipe(createGunzip());
+  const res = await fetch(DUMP, { headers: { "User-Agent": UA } });
+  if (!res.ok || !res.body) throw new Error(`Export nicht erreichbar (HTTP ${res.status})`);
+  return Readable.fromWeb(res.body).pipe(createGunzip());
 }
 
-const seen = new Set();
-const rows = [];
-for (let i = 1; i <= PAGES; i++) {
-  for (const p of await page(i)) {
-    const row = map(p);
-    if (row && !seen.has(row[0])) {
-      seen.add(row[0]);
-      rows.push(row);
-    }
+// Zeilenweise lesen mit Gegendruck (readline puffert sonst den ganzen Export im Speicher).
+async function* lines(stream) {
+  let rest = "";
+  for await (const chunk of stream.setEncoding("utf8")) {
+    const parts = (rest + chunk).split("\n");
+    rest = parts.pop();
+    yield* parts;
   }
-  if (i % 10 === 0) console.log(`${i}/${PAGES} Seiten, ${rows.length} Produkte`);
-  await sleep(250);
+  if (rest) yield rest;
 }
+
+let col = null;
+let total = 0;
+const found = new Map(); // ean → { row, scans }
+for await (const line of lines(await input())) {
+  const f = line.split("\t");
+  if (!col) {
+    col = Object.fromEntries(f.map((name, i) => [name, i]));
+    continue;
+  }
+  if (++total % 500_000 === 0) console.log(`${total} Zeilen gelesen, ${found.size} Produkte aus Deutschland`);
+  if (!f[col.countries_tags]?.includes("en:germany")) continue;
+  const get = (k) => f[col[k]];
+  const p = {
+    code: get("code"),
+    product_name: get("product_name"),
+    brands: get("brands"),
+    quantity: get("quantity"),
+    serving_size: get("serving_size"),
+    serving_quantity: get("serving_quantity"),
+    product_quantity: get("product_quantity"),
+    nutriments: {
+      "energy-kcal_100g": get("energy-kcal_100g"),
+      "energy-kj_100g": get("energy-kj_100g"),
+      energy_100g: get("energy_100g"),
+      proteins_100g: get("proteins_100g"),
+      carbohydrates_100g: get("carbohydrates_100g"),
+      fat_100g: get("fat_100g"),
+      sugars_100g: get("sugars_100g"),
+    },
+  };
+  // Ohne Makros ist ein Eintrag für die Suche wenig wert.
+  if (num(p.nutriments.proteins_100g) === undefined && num(p.nutriments.carbohydrates_100g) === undefined) continue;
+  // Kopieren: Teilstrings halten sonst die ganze (lange) CSV-Zeile im Speicher.
+  const mapped = map(p);
+  const row = mapped && JSON.parse(JSON.stringify(mapped));
+  if (!row) continue;
+  const scans = num(get("unique_scans_n")) ?? 0;
+  const prev = found.get(row[0]);
+  if (!prev || scans > prev.scans) found.set(row[0], { row, scans });
+}
+
+// Gleiches Produkt unter mehreren EANs (gleicher Name, Marke, kcal) nur einmal aufnehmen.
+const dupKey = (r) => `${r[1]}|${r[2]}|${r[3]}`.toLowerCase();
+const seenDup = new Set();
+const rows = [...found.values()]
+  .sort((a, b) => b.scans - a.scans)
+  .filter((x) => !seenDup.has(dupKey(x.row)) && seenDup.add(dupKey(x.row)))
+  .slice(0, LIMIT)
+  .map((x) => x.row);
+console.log(`${total} Zeilen, ${found.size} passende Produkte, ${rows.length} übernommen`);
 
 if (rows.length < 5000) throw new Error(`Nur ${rows.length} Produkte – Datei wird nicht überschrieben.`);
 await writeFile(OUT, JSON.stringify({ updated: new Date().toISOString().slice(0, 10), products: rows }));
