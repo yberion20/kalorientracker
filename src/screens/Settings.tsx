@@ -424,13 +424,14 @@ function HealthCard({ settings }: { settings: S }) {
             App <b>Kurzbefehle</b> öffnen › <b>＋</b> › Name: <code>{SHORTCUT_NAME}</code> (genau so).
           </li>
           <li>
-            Aktion <b>„Health-Messwerte suchen“</b> hinzufügen: Typ <b>Schritte</b>, Filter <b>Startdatum ist heute</b>.
+            Aktion <b>„Health-Messwerte suchen“</b> hinzufügen: Typ <b>Schritte</b>, Filter <b>Startdatum ist heute</b>, und unten <b>Gruppieren nach: Tag</b>. Wichtig: Ohne
+            Gruppieren werden iPhone und Apple Watch doppelt gezählt.
           </li>
           <li>
             Aktion <b>„Statistik berechnen“</b> (bzw. „Berechnen“ › Summe) auf das Ergebnis anwenden: <b>Summe</b>.
           </li>
           <li>
-            Nochmal <b>„Health-Messwerte suchen“</b>: Typ <b>Aktive Energie</b>, <b>Startdatum ist heute</b>, danach wieder{" "}
+            Nochmal <b>„Health-Messwerte suchen“</b>: Typ <b>Aktive Energie</b>, <b>Startdatum ist heute</b>, <b>Gruppieren nach: Tag</b>, danach wieder{" "}
             <b>Summe</b>.
           </li>
           <li>
