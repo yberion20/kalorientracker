@@ -20,6 +20,25 @@ export interface Nutrients {
 
 export type Unit = "g" | "ml";
 
+/** Eine Portionseinheit eines Lebensmittels, z. B. 1 Stück = 85 g. */
+export interface Portion {
+  label: string;
+  amount: number;
+}
+
+/** Gewählte Portion bei einem Eintrag, z. B. 1,5 × „Stück“ à 85 g. */
+export interface PortionChoice {
+  label: string;
+  size: number;
+  count: number;
+}
+
+/** Eine Mengenauswahl: Gramm/ml und optional die Portion, aus der sie stammt. */
+export interface Selection {
+  amount: number;
+  portion?: PortionChoice;
+}
+
 export interface FoodSnapshot {
   name: string;
   brand?: string;
@@ -30,7 +49,9 @@ export interface FoodSnapshot {
   servingSize?: number;
   servingLabel?: string;
   imageUrl?: string;
-  source: "off" | "custom" | "ai" | "quick";
+  /** Typische Portionen, z. B. { label: "Stück", amount: 85 } */
+  portions?: Portion[];
+  source: "off" | "custom" | "ai" | "quick" | "generic";
 }
 
 export const ZERO: Nutrients = { kcal: 0, protein: 0, carbs: 0, fat: 0, sugar: 0, fiber: 0, salt: 0 };
@@ -289,4 +310,74 @@ export function formatDuration(min: number): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
   return h ? `${h} h ${String(m).padStart(2, "0")} min` : `${m} min`;
+}
+
+// ---------- Portionen ----------
+
+/** Alle Portionen eines Lebensmittels, inkl. Portionsgröße aus der Datenbank, ohne Doppelte. */
+export function allPortions(food: Pick<FoodSnapshot, "portions" | "servingSize">, extra: Portion[] = []): Portion[] {
+  const out: Portion[] = [];
+  const add = (p: Portion) => {
+    if (!p.label || !(p.amount > 0)) return;
+    if (out.some((x) => x.label.toLowerCase() === p.label.toLowerCase())) return;
+    out.push({ label: p.label, amount: Math.round(p.amount * 10) / 10 });
+  };
+  [...(food.portions ?? []), ...extra].forEach(add);
+  if (food.servingSize && !out.some((x) => Math.abs(x.amount - food.servingSize!) < 0.5)) {
+    add({ label: "Portion", amount: food.servingSize });
+  }
+  return out;
+}
+
+export function mergePortions(a: Portion[] | undefined, b: Portion[] | undefined): Portion[] | undefined {
+  const merged = allPortions({ portions: [...(a ?? []), ...(b ?? [])] });
+  return merged.length ? merged : undefined;
+}
+
+export const fmtCount = (n: number) => {
+  const r = Math.round(n * 100) / 100;
+  if (r === 0.5) return "½";
+  if (r === 0.25) return "¼";
+  return r.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+};
+
+/** Lesbare Mengenangabe, z. B. „1 Stück (85 g)“ oder „150 g“. */
+export function formatAmount(amount: number, unit: Unit, portion?: PortionChoice): string {
+  if (portion) return `${fmtCount(portion.count)} ${portion.label} (${fmt(amount)} ${unit})`;
+  return `${fmt(amount)} ${unit}`;
+}
+
+const EN_PORTION: Record<string, string> = {
+  slice: "Scheibe",
+  slices: "Scheibe",
+  bar: "Riegel",
+  piece: "Stück",
+  pieces: "Stück",
+  pcs: "Stück",
+  cup: "Tasse",
+  glass: "Glas",
+  bottle: "Flasche",
+  can: "Dose",
+  biscuit: "Keks",
+  biscuits: "Keks",
+  cookie: "Keks",
+  cookies: "Keks",
+  egg: "Ei",
+  tablespoon: "EL",
+  tbsp: "EL",
+  teaspoon: "TL",
+  tsp: "TL",
+  pot: "Becher",
+  pack: "Packung",
+  sachet: "Beutel",
+};
+
+/** Leitet aus einer Angabe wie „1 Riegel (25 g)“ oder „2 slices (40 g)“ eine Portionsbezeichnung ab. */
+export function portionLabelFrom(servingText: string | undefined): string {
+  const m = /^\s*(?:\d+[.,]?\d*\s*|ein[e]?\s+)?([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß-]{1,20})/.exec(servingText ?? "");
+  const w = m?.[1];
+  if (!w || /^(g|gr|gramm|grams?|ml|cl|l|portions?|servings?|serve|oz|kg)$/i.test(w)) return "Portion";
+  const en = EN_PORTION[w.toLowerCase()];
+  if (en) return en;
+  return w[0].toUpperCase() + w.slice(1);
 }

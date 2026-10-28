@@ -1028,3 +1028,24 @@ code {
   border-radius: 4px;
   transition: width 0.4s ease;
 }
+
+/* Portionseinheiten im Mengen-Dialog */
+.unit-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  margin: 0 -16px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.unit-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.unit-chips .chip {
+  white-space: nowrap;
+  flex: none;
+}

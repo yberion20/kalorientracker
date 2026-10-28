@@ -2,18 +2,21 @@ import { describe, expect, it } from "vitest";
 import { parseHealthText } from "./health";
 import {
   addDays,
+  allPortions,
   bmr,
   calorieTarget,
   dayFactor,
   eatWindowMinutes,
   fastingStatus,
+  formatAmount,
   goalsForDay,
   macroGrams,
+  portionLabelFrom,
   scale,
   sum,
 } from "./nutrition";
 import { mapOffProduct } from "./off";
-import { searchItems, toItems } from "./catalog";
+import { genericItems, searchItems, toItems } from "./catalog";
 
 describe("nutrition", () => {
   it("rechnet Nährwerte auf die Menge um", () => {
@@ -119,7 +122,7 @@ describe("Produktliste", () => {
 
   it("übernimmt Nährwerte und Einheit", () => {
     const f = searchItems(list, "haltbare")[0];
-    expect(f).toMatchObject({ unit: "ml", servingSize: 250, source: "off", per100: { kcal: 47, fat: 1.5 } });
+    expect(f).toMatchObject({ unit: "ml", portions: [{ label: "Portion", amount: 250 }], source: "off", per100: { kcal: 47, fat: 1.5 } });
   });
 });
 
@@ -167,5 +170,48 @@ describe("Intervallfasten", () => {
     expect(eatWindowMinutes({ eatStart: "18:00", eatEnd: "02:00" })).toBe(480);
     expect(fastingStatus({ eatStart: "18:00", eatEnd: "02:00" }, at(1)).phase).toBe("eat");
     expect(fastingStatus({ eatStart: "18:00", eatEnd: "02:00" }, at(10)).phase).toBe("fast");
+  });
+});
+
+describe("Portionen", () => {
+  it("leitet Bezeichnungen aus Open-Food-Facts-Angaben ab", () => {
+    expect(portionLabelFrom("1 Riegel (25 g)")).toBe("Riegel");
+    expect(portionLabelFrom("2 slices (40 g)")).toBe("Scheibe");
+    expect(portionLabelFrom("30 g")).toBe("Portion");
+    expect(portionLabelFrom(undefined)).toBe("Portion");
+  });
+
+  it("übernimmt Portion und Packung beim Barcode-Abruf", () => {
+    const f = mapOffProduct({
+      product_name: "Riegel",
+      serving_size: "1 Riegel (25 g)",
+      serving_quantity: 25,
+      product_quantity: 150,
+      nutriments: { "energy-kcal_100g": 450 },
+    })!;
+    expect(f.portions).toEqual([
+      { label: "Riegel", amount: 25 },
+      { label: "Packung", amount: 150 },
+    ]);
+  });
+
+  it("entfernt doppelte Portionen und ergänzt die Portionsgröße", () => {
+    expect(allPortions({ portions: [{ label: "Stück", amount: 85 }, { label: "stück", amount: 90 }], servingSize: 40 })).toEqual([
+      { label: "Stück", amount: 85 },
+      { label: "Portion", amount: 40 },
+    ]);
+  });
+
+  it("formatiert Mengen mit Portion", () => {
+    expect(formatAmount(127.5, "g", { label: "Stück", size: 85, count: 1.5 })).toBe("1,5 Stück (128 g)");
+    expect(formatAmount(42.5, "g", { label: "Stück", size: 85, count: 0.5 })).toBe("½ Stück (43 g)");
+    expect(formatAmount(150, "g")).toBe("150 g");
+  });
+
+  it("findet Grundnahrungsmittel über Synonyme", () => {
+    const f = searchItems(genericItems(), "breze")[0];
+    expect(f.name).toBe("Brezel (Laugenbrezel)");
+    expect(f.portions).toEqual([{ label: "Stück", amount: 85 }]);
+    expect(searchItems(genericItems(), "semmel")[0].name).toMatch(/brötchen/i);
   });
 });

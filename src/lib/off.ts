@@ -1,4 +1,4 @@
-import type { FoodSnapshot, Nutrients, Unit } from "./nutrition";
+import { type FoodSnapshot, type Nutrients, type Portion, type Unit, portionLabelFrom } from "./nutrition";
 
 /** Open Food Facts – freie Lebensmitteldatenbank. */
 const FIELDS = [
@@ -12,6 +12,7 @@ const FIELDS = [
   "serving_quantity",
   "serving_quantity_unit",
   "quantity",
+  "product_quantity",
   "product_quantity_unit",
   "image_front_small_url",
 ].join(",");
@@ -27,6 +28,7 @@ export interface OffProduct {
   serving_quantity?: number | string;
   serving_quantity_unit?: string;
   quantity?: string;
+  product_quantity?: number | string;
   product_quantity_unit?: string;
   image_front_small_url?: string;
 }
@@ -65,6 +67,10 @@ export function mapOffProduct(p: OffProduct, ean?: string): FoodSnapshot | null 
 
   const unit: Unit = isLiquid(p) ? "ml" : "g";
   const servingSize = num(p.serving_quantity);
+  const portions: Portion[] = [];
+  if (servingSize && servingSize > 0 && servingSize < 2000) portions.push({ label: portionLabelFrom(p.serving_size), amount: servingSize });
+  const pack = num(p.product_quantity);
+  if (pack && pack <= 1000 && pack !== servingSize) portions.push({ label: "Packung", amount: pack });
   const name = (p.product_name_de || p.product_name || p.generic_name_de || "").trim() || "Unbekanntes Produkt";
   const brand = p.brands?.split(",")[0]?.trim() || undefined;
 
@@ -75,6 +81,7 @@ export function mapOffProduct(p: OffProduct, ean?: string): FoodSnapshot | null 
     per100,
     unit,
     servingSize: servingSize && servingSize > 0 ? servingSize : undefined,
+    ...(portions.length ? { portions } : {}),
     servingLabel: p.serving_size || undefined,
     imageUrl: p.image_front_small_url,
     source: "off",

@@ -9,6 +9,10 @@ import {
   type MacroSplit,
   type Meal,
   type Nutrients,
+  type Portion,
+  type PortionChoice,
+  type Selection,
+  mergePortions,
   type Profile,
   scale,
 } from "./lib/nutrition";
@@ -18,6 +22,10 @@ export interface Food extends FoodSnapshot {
   favorite: 0 | 1;
   lastUsedAt: number;
   useCount: number;
+  /** Standardmenge für Favoriten („meine Menge“) */
+  preferred?: Selection;
+  /** Zuletzt gewählte Menge */
+  lastSelection?: Selection;
 }
 
 export interface Entry {
@@ -26,6 +34,7 @@ export interface Entry {
   meal: Meal;
   food: FoodSnapshot;
   amount: number;
+  portion?: PortionChoice;
   nutrients: Nutrients;
   createdAt: number;
 }
@@ -33,6 +42,7 @@ export interface Entry {
 export interface SavedMealItem {
   food: FoodSnapshot;
   amount: number;
+  portion?: PortionChoice;
 }
 
 export interface SavedMeal {
@@ -131,6 +141,7 @@ export async function rememberFood(f: FoodSnapshot, patch: Partial<Food> = {}): 
   const food: Food = {
     ...existing,
     ...f,
+    portions: mergePortions(existing?.portions, f.portions),
     id,
     favorite: existing?.favorite ?? 0,
     lastUsedAt: Date.now(),
@@ -146,7 +157,9 @@ export async function ensureFood(f: FoodSnapshot) {
   const id = foodKey(f);
   const existing = await db.foods.get(id);
   await db.foods.put({
+    ...existing,
     ...snapshotOf(f),
+    portions: mergePortions(existing?.portions, f.portions),
     id,
     favorite: existing?.favorite ?? 0,
     lastUsedAt: existing?.lastUsedAt ?? 0,
@@ -154,34 +167,41 @@ export async function ensureFood(f: FoodSnapshot) {
   });
 }
 
-export async function setFavorite(f: FoodSnapshot, favorite: boolean) {
+export async function setFavorite(f: FoodSnapshot, favorite: boolean, preferred?: Selection) {
   const id = foodKey(f);
   const existing = await db.foods.get(id);
-  if (existing) await db.foods.update(id, { favorite: favorite ? 1 : 0 });
-  else await db.foods.put({ ...snapshotOf(f), id, favorite: favorite ? 1 : 0, lastUsedAt: 0, useCount: 0 });
+  const patch = { favorite: (favorite ? 1 : 0) as 0 | 1, preferred: favorite ? (preferred ?? existing?.preferred) : undefined };
+  if (existing) await db.foods.update(id, patch);
+  else await db.foods.put({ ...snapshotOf(f), id, lastUsedAt: 0, useCount: 0, ...patch });
+}
+
+/** Speichert eine zusätzliche Portion (z. B. selbst angelegt oder von der KI geschätzt). */
+export async function addPortions(f: FoodSnapshot, portions: Portion[]) {
+  await ensureFood({ ...f, portions: mergePortions(f.portions, portions) });
 }
 
 export function snapshotOf(f: Food | FoodSnapshot): FoodSnapshot {
-  const { name, brand, ean, per100, unit, servingSize, servingLabel, imageUrl, source } = f;
-  return { name, brand, ean, per100, unit, servingSize, servingLabel, imageUrl, source };
+  const { name, brand, ean, per100, unit, servingSize, servingLabel, imageUrl, source, portions } = f;
+  return { name, brand, ean, per100, unit, servingSize, servingLabel, imageUrl, source, portions };
 }
 
-export async function addEntry(date: string, meal: Meal, food: FoodSnapshot, amount: number) {
+export async function addEntry(date: string, meal: Meal, food: FoodSnapshot, amount: number, portion?: PortionChoice) {
   const entry: Entry = {
     id: uid(),
     date,
     meal,
     food: snapshotOf(food),
     amount,
+    ...(portion ? { portion } : {}),
     nutrients: scale(food.per100, amount),
     createdAt: Date.now(),
   };
   await db.entries.add(entry);
-  await rememberFood(food);
+  await rememberFood(food, { lastSelection: { amount, portion } });
   return entry;
 }
 
-export async function updateEntry(id: string, patch: { amount?: number; meal?: Meal }) {
+export async function updateEntry(id: string, patch: { amount?: number; meal?: Meal; portion?: PortionChoice }) {
   const e = await db.entries.get(id);
   if (!e) return;
   const amount = patch.amount ?? e.amount;
@@ -201,6 +221,7 @@ export async function addSavedMealToDay(meal: SavedMeal, date: string, slot: Mea
       meal: slot,
       food: it.food,
       amount: it.amount * factor,
+      ...(it.portion ? { portion: { ...it.portion, count: it.portion.count * factor } } : {}),
       nutrients: scale(it.food.per100, it.amount * factor),
       createdAt: now + i,
     })),

@@ -1,10 +1,24 @@
-import type { FoodSnapshot } from "./nutrition";
+import { GENERIC_FOODS } from "../data/generic";
+import { type FoodSnapshot, type Portion, allPortions } from "./nutrition";
 
 /**
  * Eingebaute Liste der meistgescannten Produkte in Deutschland (aus Open Food Facts,
  * wöchentlich per GitHub Action aktualisiert). Ermöglicht Suche beim Tippen, auch offline.
  */
-type Row = [string, string, string, number, number, number, number, number | null, "g" | "ml", number | null];
+type Row = [
+  string, // EAN
+  string, // Name
+  string, // Marke
+  number, // kcal
+  number, // Eiweiß
+  number, // Kohlenhydrate
+  number, // Fett
+  number | null, // Zucker
+  "g" | "ml",
+  number | null, // Portionsgröße
+  (string | null)?, // Portionsbezeichnung, z. B. „Riegel“
+  (number | null)?, // Packungsgröße
+];
 
 interface Item {
   food: FoodSnapshot;
@@ -21,20 +35,37 @@ export function normalize(s: string) {
 }
 
 export function toItems(rows: Row[]): Item[] {
-  return rows.map(([ean, name, brand, kcal, protein, carbs, fat, sugar, unit, serving], rank) => ({
+  return rows.map(([ean, name, brand, kcal, protein, carbs, fat, sugar, unit, serving, servingLabel, pack], rank) => {
+    const portions: Portion[] = [];
+    if (serving) portions.push({ label: servingLabel || "Portion", amount: serving });
+    if (pack && pack <= 1000 && pack !== serving) portions.push({ label: "Packung", amount: pack });
+    return {
+      rank,
+      name: normalize(name),
+      hay: normalize(`${name} ${brand}`),
+      food: {
+        name,
+        brand: brand || undefined,
+        ean,
+        unit,
+        ...(portions.length ? { portions: allPortions({ portions }) } : {}),
+        per100: { kcal, protein, carbs, fat, ...(sugar !== null ? { sugar } : {}) },
+        source: "off",
+      },
+    };
+  });
+}
+
+/** Grundnahrungsmittel (Brezel, Apfel, Pizza …) mit typischen Portionen. */
+let generic: Item[] | null = null;
+export function genericItems(): Item[] {
+  generic ??= GENERIC_FOODS.map((g, rank) => ({
     rank,
-    name: normalize(name),
-    hay: normalize(`${name} ${brand}`),
-    food: {
-      name,
-      brand: brand || undefined,
-      ean,
-      unit,
-      servingSize: serving ?? undefined,
-      per100: { kcal, protein, carbs, fat, ...(sugar !== null ? { sugar } : {}) },
-      source: "off",
-    },
+    name: normalize(g.food.name),
+    hay: normalize(`${g.food.name} ${g.synonyms}`),
+    food: g.food,
   }));
+  return generic;
 }
 
 export function loadCatalog(): Promise<Item[]> {
@@ -62,7 +93,9 @@ function score(it: Item, tokens: string[]): number {
     const end = it.hay[i + t.length];
     const wholeWord = atWord && (end === undefined || /[^a-z0-9]/.test(end));
     s += wholeWord ? 30 : atWord ? 20 : 5;
-    if (it.name.startsWith(t)) s += 25;
+    // Name beginnt mit dem Suchwort: stark, wenn es ein ganzes Wort ist („Milch …“),
+    // schwach bei zusammengesetzten Wörtern („Semmelknödel“ bei „Semmel“).
+    if (it.name.startsWith(t)) s += wholeWord || !/[a-z]/.test(it.name[t.length] ?? "") ? 25 : 8;
   }
   // Kürzere Namen sind meist die „generischeren“ Treffer (z. B. „Milch“ vor „Alpenvollmilch-Schokolade“).
   s += Math.max(0, 15 - it.name.length / 3);

@@ -1,16 +1,17 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AiPanel, PhotoAnalysis } from "../components/AiPanel";
-import { AmountSheet, defaultAmount, sourceLabel } from "../components/AmountSheet";
+import { AmountSheet, sourceLabel } from "../components/AmountSheet";
 import { CustomFoodForm, QuickAddForm } from "../components/CustomFoodForm";
 import { type CapturedPhoto, Scanner } from "../components/Scanner";
 import { FoodThumb, Sheet } from "../components/ui";
-import { type SavedMeal, db, ensureFood, snapshotOf } from "../db";
-import { type FoodSnapshot, fmt, scale, sum } from "../lib/nutrition";
-import { loadCatalog, normalize, searchItems } from "../lib/catalog";
+import { type Food, type SavedMeal, db, ensureFood, foodKey, snapshotOf } from "../db";
+import { type FoodSnapshot, type PortionChoice, type Selection, fmt, formatAmount, scale, sum } from "../lib/nutrition";
+import { genericItems, loadCatalog, normalize, searchItems } from "../lib/catalog";
 import { OffError, lookupBarcode, searchOff } from "../lib/off";
 
-export type AddItems = (items: { food: FoodSnapshot; amount: number }[]) => void | Promise<void>;
+export type AddItem = { food: FoodSnapshot; amount: number; portion?: PortionChoice };
+export type AddItems = (items: AddItem[]) => void | Promise<void>;
 
 type Tab = "search" | "scan" | "ai" | "meals" | "custom";
 
@@ -47,7 +48,7 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
     return () => clearTimeout(t);
   }, [toast]);
 
-  const add = async (items: { food: FoodSnapshot; amount: number }[], msg?: string) => {
+  const add = async (items: AddItem[], msg?: string) => {
     await onAdd(items);
     setToast(msg ?? (items.length === 1 ? `${items[0].food.name} hinzugefügt` : `${items.length} Einträge hinzugefügt`));
   };
@@ -70,7 +71,12 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
         ))}
       </div>
 
-      {tab === "search" && <SearchTab onPick={setPicked} />}
+      {tab === "search" && (
+        <SearchTab
+          onPick={setPicked}
+          onQuickAdd={(f, sel) => add([{ food: snapshotOf(f), amount: sel.amount, portion: sel.portion }], `${f.name}: ${formatAmount(sel.amount, f.unit, sel.portion)}`)}
+        />
+      )}
       {tab === "scan" && <CameraTab onPick={setPicked} onAdd={(items) => add(items)} goToSettings={goToSettings} />}
       {tab === "ai" && <AiPanel goToSettings={goToSettings} onAdd={(items) => add(items)} />}
       {tab === "meals" && <SavedMealsTab onAdd={add} />}
@@ -79,10 +85,10 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
       <AmountSheet
         food={picked}
         onClose={() => setPicked(null)}
-        onConfirm={async (amount) => {
+        onConfirm={async (sel) => {
           const f = picked!;
           setPicked(null);
-          await add([{ food: f, amount }]);
+          await add([{ food: f, amount: sel.amount, portion: sel.portion }]);
         }}
       />
 
@@ -99,7 +105,7 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
 
 type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
 
-function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
+function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; onQuickAdd: (f: Food, sel: Selection) => void }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"recent" | "fav" | "custom">("recent");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -137,11 +143,17 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
       .slice(0, 30);
   }, [local, nq, filter]);
 
+  const ownKeys = useMemo(() => new Set(localMatches.map((f) => foodKey(f))), [localMatches]);
+
+  const genericMatches = useMemo(() => {
+    if (!nq) return [];
+    return searchItems(genericItems(), query, 8).filter((f) => !ownKeys.has(foodKey(f)));
+  }, [nq, query, ownKeys]);
+
   const catalogMatches = useMemo(() => {
     if (!catalog || !nq) return [];
-    const own = new Set(localMatches.map((f) => f.ean).filter(Boolean));
-    return searchItems(catalog, query, 40).filter((f) => !own.has(f.ean));
-  }, [catalog, nq, query, localMatches]);
+    return searchItems(catalog, query, 40).filter((f) => !ownKeys.has(foodKey(f)));
+  }, [catalog, nq, query, ownKeys]);
 
   const searchOnline = async () => {
     const qq = query;
@@ -186,7 +198,7 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
           {localMatches.length > 0 ? (
             <>
               <div className="section-title" />
-              <FoodList foods={localMatches} onPick={onPick} />
+              <FoodList foods={localMatches} onPick={onPick} onQuickAdd={onQuickAdd} />
             </>
           ) : (
             <div className="empty small">
@@ -205,11 +217,17 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
           {localMatches.length > 0 && (
             <>
               <div className="section-title">Meine Lebensmittel</div>
-              <FoodList foods={localMatches} onPick={onPick} />
+              <FoodList foods={localMatches} onPick={onPick} onQuickAdd={onQuickAdd} />
+            </>
+          )}
+          {genericMatches.length > 0 && (
+            <>
+              <div className="section-title">Grundnahrungsmittel</div>
+              <FoodList foods={genericMatches} onPick={onPick} />
             </>
           )}
           <div className="section-title row between">
-            <span>Produkte</span>
+            <span>Markenprodukte</span>
             {!catalog && !catalogError && <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />}
           </div>
           {catalogError && <div className="notice error">Die Produktliste konnte nicht geladen werden. Bitte mit Internet einmal neu öffnen.</div>}
@@ -255,26 +273,52 @@ function SearchTab({ onPick }: { onPick: (f: FoodSnapshot) => void }) {
   );
 }
 
-function FoodList({ foods, onPick }: { foods: FoodSnapshot[]; onPick: (f: FoodSnapshot) => void }) {
+function FoodList({
+  foods,
+  onPick,
+  onQuickAdd,
+}: {
+  foods: (FoodSnapshot | Food)[];
+  onPick: (f: FoodSnapshot) => void;
+  onQuickAdd?: (f: Food, sel: Selection) => void;
+}) {
   return (
     <div className="list">
-      {foods.map((f, i) => (
-        <button key={`${f.ean ?? f.name}-${i}`} className="list-item" onClick={() => onPick(snapshotOf(f))}>
-          <FoodThumb imageUrl={f.imageUrl} source={f.source} />
-          <div className="grow">
-            <div className="ellipsis" style={{ fontWeight: 600 }}>
-              {"favorite" in f && (f as { favorite: number }).favorite ? "★ " : ""}
-              {f.name}
+      {foods.map((f, i) => {
+        const rec = "id" in f ? (f as Food) : undefined;
+        // Favoriten nutzen ihre feste Menge, sonst die zuletzt gegessene.
+        const sel = rec ? (rec.favorite ? (rec.preferred ?? rec.lastSelection) : rec.lastSelection) : undefined;
+        const quick = !!(sel && onQuickAdd && rec);
+        return (
+          <div key={`${f.ean ?? f.name}-${i}`} className="list-item" role="button" onClick={() => onPick(snapshotOf(f))}>
+            <FoodThumb imageUrl={f.imageUrl} source={f.source} />
+            <div className="grow">
+              <div className="ellipsis" style={{ fontWeight: 600 }}>
+                {rec?.favorite ? "★ " : ""}
+                {f.name}
+              </div>
+              <div className="small muted ellipsis">
+                {sel
+                  ? `${formatAmount(sel.amount, f.unit, sel.portion)} · ${fmt(scale(f.per100, sel.amount).kcal)} kcal`
+                  : f.source === "generic" && f.portions?.[0]
+                    ? `1 ${f.portions[0].label} (${fmt(f.portions[0].amount)} ${f.unit}) · ${fmt(scale(f.per100, f.portions[0].amount).kcal)} kcal`
+                    : [f.brand, `${fmt(f.per100.kcal)} kcal / 100 ${f.unit}`].filter(Boolean).join(" · ")}
+              </div>
             </div>
-            <div className="small muted ellipsis">
-              {[f.brand, `${fmt(f.per100.kcal)} kcal / 100 ${f.unit}`].filter(Boolean).join(" · ")}
-            </div>
+            <button
+              className="add-btn"
+              aria-label={quick ? "Mit gemerkter Menge hinzufügen" : "Menge wählen"}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (quick) onQuickAdd!(rec!, sel!);
+                else onPick(snapshotOf(f));
+              }}
+            >
+              +
+            </button>
           </div>
-          <span className="add-btn" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-            +
-          </span>
-        </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -441,7 +485,7 @@ export function mealTotal(m: SavedMeal) {
   return sum(m.items.map((i) => scale(i.food.per100, i.amount)));
 }
 
-function SavedMealsTab({ onAdd }: { onAdd: (items: { food: FoodSnapshot; amount: number }[], msg?: string) => void }) {
+function SavedMealsTab({ onAdd }: { onAdd: (items: AddItem[], msg?: string) => void }) {
   const meals = useLiveQuery(() => db.savedMeals.orderBy("name").toArray(), []);
   const [sel, setSel] = useState<SavedMeal | null>(null);
   const [factor, setFactor] = useState(1);
@@ -510,7 +554,11 @@ function SavedMealsTab({ onAdd }: { onAdd: (items: { food: FoodSnapshot; amount:
                 const m = sel;
                 setSel(null);
                 onAdd(
-                  m.items.map((i) => ({ food: i.food, amount: i.amount * factor })),
+                  m.items.map((i) => ({
+                    food: i.food,
+                    amount: i.amount * factor,
+                    portion: i.portion ? { ...i.portion, count: i.portion.count * factor } : undefined,
+                  })),
                   `${m.name} hinzugefügt`,
                 );
               }}
@@ -564,4 +612,4 @@ function CustomTab({ onPick, onQuick }: { onPick: (f: FoodSnapshot) => void; onQ
   );
 }
 
-export { defaultAmount, sourceLabel };
+export { sourceLabel };

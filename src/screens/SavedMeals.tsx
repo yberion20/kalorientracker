@@ -3,7 +3,7 @@ import { useState } from "react";
 import { AmountSheet } from "../components/AmountSheet";
 import { FoodThumb, NutriGrid, Sheet } from "../components/ui";
 import { type SavedMeal, type SavedMealItem, db, uid } from "../db";
-import { fmt } from "../lib/nutrition";
+import { fmt, formatAmount } from "../lib/nutrition";
 import { AddFood, mealTotal } from "./AddFood";
 
 export function SavedMeals({ goToSettings }: { goToSettings: () => void }) {
@@ -94,7 +94,7 @@ function MealEditor({ meal, onDone, goToSettings }: { meal: SavedMeal; onDone: (
               <div className="grow">
                 <div className="ellipsis">{it.food.name}</div>
                 <div className="small muted">
-                  {fmt(it.amount)} {it.food.unit} · {fmt((it.food.per100.kcal * it.amount) / 100)} kcal
+                  {formatAmount(it.amount, it.food.unit, it.portion)} · {fmt((it.food.per100.kcal * it.amount) / 100)} kcal
                 </div>
               </div>
               <span className="muted">›</span>
@@ -135,11 +135,11 @@ function MealEditor({ meal, onDone, goToSettings }: { meal: SavedMeal; onDone: (
       />
       <AmountSheet
         food={editIdx !== null ? items[editIdx].food : null}
-        initialAmount={editIdx !== null ? items[editIdx].amount : undefined}
+        initial={editIdx !== null ? { amount: items[editIdx].amount, portion: items[editIdx].portion } : undefined}
         confirmLabel="Übernehmen"
         onClose={() => setEditIdx(null)}
-        onConfirm={(amount) => {
-          setItems((prev) => prev.map((it, i) => (i === editIdx ? { ...it, amount } : it)));
+        onConfirm={(sel) => {
+          setItems((prev) => prev.map((it, i) => (i === editIdx ? { ...it, amount: sel.amount, portion: sel.portion } : it)));
           setEditIdx(null);
         }}
         onDelete={() => {

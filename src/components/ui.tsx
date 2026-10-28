@@ -132,7 +132,7 @@ export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: 
   );
 }
 
-const SOURCE_ICON = { off: "🏷️", custom: "✏️", ai: "✨", quick: "⚡" } as const;
+const SOURCE_ICON = { off: "🏷️", custom: "✏️", ai: "✨", quick: "⚡", generic: "🥗" } as const;
 
 export function FoodThumb({ imageUrl, source }: { imageUrl?: string; source: keyof typeof SOURCE_ICON }) {
   if (imageUrl) return <img className="thumb" src={imageUrl} alt="" loading="lazy" />;

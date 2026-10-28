@@ -1,0 +1,257 @@
+import type { FoodSnapshot, Portion } from "../lib/nutrition";
+
+/**
+ * Grundnahrungsmittel ohne Barcode (Bäcker, Obst, Gemüse, Gerichte …) mit typischen Portionen.
+ * Richtwerte pro 100 g bzw. 100 ml nach gängigen Nährwerttabellen; einzelne Produkte weichen ab.
+ *
+ * Format: [Name, kcal, Eiweiß, Kohlenhydrate, Fett, Portionen „Label:Menge|…“, Suchbegriffe?, Einheit?]
+ */
+type Row = [string, number, number, number, number, string, string?, ("g" | "ml")?];
+
+const ROWS: Row[] = [
+  // Backwaren
+  ["Brezel (Laugenbrezel)", 275, 8.5, 55, 2, "Stück:85", "breze brezn laugen"],
+  ["Butterbrezel", 330, 8, 45, 13, "Stück:110", "breze butter"],
+  ["Laugenstange", 270, 8.5, 54, 2.5, "Stück:90"],
+  ["Laugenbrötchen", 270, 8.5, 54, 2.5, "Stück:70", "laugenweckle laugensemmel"],
+  ["Brötchen (Weizen)", 270, 9, 54, 1.5, "Stück:55", "semmel schrippe weckle wecken broetchen"],
+  ["Vollkornbrötchen", 240, 9, 43, 3, "Stück:65", "semmel weckle"],
+  ["Körnerbrötchen", 270, 10, 44, 6, "Stück:70", "semmel weckle kernig"],
+  ["Croissant", 410, 8, 45, 21, "Stück:60", "hörnchen"],
+  ["Schokocroissant", 430, 7, 46, 24, "Stück:75", "pain au chocolat"],
+  ["Toastbrot", 260, 8, 48, 3.5, "Scheibe:25"],
+  ["Vollkorntoast", 250, 9, 42, 4, "Scheibe:28"],
+  ["Vollkornbrot", 210, 7.5, 38, 1.5, "Scheibe:45"],
+  ["Mischbrot", 225, 6.5, 45, 1.2, "Scheibe:45", "graubrot bauernbrot"],
+  ["Roggenbrot", 210, 6.5, 41, 1.2, "Scheibe:45"],
+  ["Pumpernickel", 190, 5.5, 37, 1, "Scheibe:40"],
+  ["Baguette", 260, 8.5, 52, 1.5, "Scheibe:30|Stück:250"],
+  ["Ciabatta", 260, 9, 50, 2.5, "Stück:80"],
+  ["Bagel", 260, 10, 50, 1.5, "Stück:90"],
+  ["Knäckebrot", 335, 10, 63, 1.5, "Scheibe:10"],
+  ["Zwieback", 390, 10, 74, 5.5, "Stück:9"],
+  ["Berliner (Krapfen)", 340, 6, 49, 14, "Stück:70", "kreppel pfannkuchen"],
+  ["Apfelstrudel", 230, 3, 30, 11, "Stück:150"],
+  ["Käsekuchen", 230, 8, 24, 11, "Stück:120"],
+  ["Marmorkuchen", 400, 6, 50, 20, "Stück:70", "rührkuchen"],
+  ["Streuselkuchen", 380, 5, 55, 16, "Stück:90"],
+  ["Muffin (Schoko)", 420, 6, 50, 22, "Stück:90"],
+  ["Donut", 400, 5, 50, 20, "Stück:60"],
+  ["Waffel", 320, 6, 38, 16, "Stück:60"],
+  ["Pfannkuchen", 220, 7, 27, 9, "Stück:80", "eierkuchen pancake crepe"],
+
+  // Frühstück & Getreide
+  ["Haferflocken", 370, 13.5, 58.7, 7, "EL:10|Portion:50", "oats"],
+  ["Müsli (ungesüßt)", 360, 10, 60, 7, "Portion:50|EL:10"],
+  ["Knuspermüsli", 450, 9, 62, 17, "Portion:50", "granola crunchy"],
+  ["Cornflakes", 370, 7, 84, 1, "Portion:30"],
+  ["Porridge (mit Milch)", 110, 4.5, 15, 3.5, "Schale:300", "haferbrei"],
+
+  // Beilagen
+  ["Reis (gekocht)", 130, 2.7, 28, 0.3, "Portion:200"],
+  ["Reis (roh)", 350, 7, 78, 0.6, "Portion:75"],
+  ["Nudeln (gekocht)", 150, 5, 30, 0.9, "Portion:250", "pasta spaghetti penne"],
+  ["Nudeln (roh)", 355, 12.5, 72, 1.5, "Portion:100", "pasta spaghetti penne"],
+  ["Vollkornnudeln (gekocht)", 140, 5.5, 27, 1.1, "Portion:250", "pasta"],
+  ["Kartoffeln (gekocht)", 72, 2, 15, 0.1, "Stück:80|Portion:200", "erdäpfel salzkartoffeln pellkartoffeln"],
+  ["Pommes frites", 290, 3.5, 35, 15, "Portion:150", "fritten pommes"],
+  ["Kartoffelpüree", 95, 2, 13, 4, "Portion:200", "kartoffelbrei stampf"],
+  ["Bratkartoffeln", 150, 2.5, 20, 7, "Portion:200"],
+  ["Süßkartoffel (gekocht)", 86, 1.6, 20, 0.1, "Stück:200"],
+  ["Quinoa (gekocht)", 120, 4.4, 21, 1.9, "Portion:180"],
+  ["Couscous (gekocht)", 112, 3.8, 23, 0.2, "Portion:180"],
+  ["Bulgur (gekocht)", 85, 3, 18.5, 0.2, "Portion:180"],
+  ["Spätzle (gekocht)", 150, 5.5, 27, 2, "Portion:200"],
+  ["Gnocchi", 150, 3.5, 33, 0.4, "Portion:200"],
+  ["Semmelknödel", 180, 6, 30, 4, "Stück:110", "knödel klöße"],
+
+  // Obst
+  ["Apfel", 54, 0.3, 11.4, 0.2, "Stück:150"],
+  ["Banane", 93, 1.1, 20, 0.2, "Stück:120"],
+  ["Birne", 55, 0.5, 12.4, 0.3, "Stück:160"],
+  ["Orange", 47, 1, 9, 0.2, "Stück:150", "apfelsine"],
+  ["Mandarine", 50, 0.7, 10, 0.3, "Stück:60", "clementine"],
+  ["Kiwi", 51, 1, 9, 0.6, "Stück:75"],
+  ["Erdbeeren", 32, 0.7, 5.5, 0.4, "Schale:150|Stück:15"],
+  ["Heidelbeeren", 42, 0.6, 7.4, 0.6, "Schale:125|Handvoll:50", "blaubeeren"],
+  ["Himbeeren", 36, 1.3, 4.8, 0.3, "Schale:125"],
+  ["Weintrauben", 70, 0.7, 15.6, 0.3, "Portion:125|Traube:5", "trauben"],
+  ["Ananas", 55, 0.5, 12, 0.2, "Scheibe:80|Portion:150"],
+  ["Mango", 62, 0.6, 13, 0.4, "Stück:300|Portion:150"],
+  ["Wassermelone", 30, 0.6, 7.5, 0.2, "Scheibe:300", "melone"],
+  ["Pfirsich", 42, 0.8, 9, 0.1, "Stück:130"],
+  ["Nektarine", 44, 1, 9.5, 0.3, "Stück:130"],
+  ["Pflaumen", 47, 0.6, 10, 0.2, "Stück:35", "zwetschgen"],
+  ["Kirschen", 63, 0.9, 13.3, 0.3, "Portion:150"],
+  ["Avocado", 160, 2, 3.6, 15.3, "Stück:150|Hälfte:75"],
+  ["Grapefruit", 38, 0.6, 7.4, 0.1, "Hälfte:150"],
+  ["Datteln (getrocknet)", 280, 2, 65, 0.5, "Stück:8"],
+  ["Rosinen", 300, 2.5, 68, 0.5, "EL:15"],
+
+  // Gemüse & Hülsenfrüchte
+  ["Tomate", 18, 0.9, 2.6, 0.2, "Stück:80"],
+  ["Cherrytomaten", 20, 0.9, 3, 0.2, "Stück:15|Portion:100", "kirschtomaten"],
+  ["Gurke", 12, 0.6, 1.8, 0.1, "Stück:400|Scheibe:10", "salatgurke"],
+  ["Paprika", 30, 1, 5, 0.3, "Stück:150"],
+  ["Karotte", 36, 0.9, 7, 0.2, "Stück:80", "möhre rübli"],
+  ["Brokkoli", 34, 3, 3, 0.4, "Portion:200"],
+  ["Blumenkohl", 25, 2, 2.5, 0.3, "Portion:200"],
+  ["Zucchini", 20, 1.5, 2.2, 0.4, "Stück:250"],
+  ["Aubergine", 20, 1, 3, 0.2, "Stück:300"],
+  ["Spinat", 23, 2.9, 1.4, 0.4, "Portion:150"],
+  ["Blattsalat", 14, 1.2, 1.1, 0.2, "Portion:80", "kopfsalat eisbergsalat salat"],
+  ["Rucola", 25, 2.6, 2, 0.7, "Portion:30", "rauke"],
+  ["Zwiebel", 32, 1.2, 5, 0.2, "Stück:80"],
+  ["Knoblauch", 145, 6, 28, 0.1, "Zehe:4"],
+  ["Champignons", 22, 3, 0.6, 0.3, "Portion:150", "pilze"],
+  ["Mais (Dose)", 80, 2.9, 14, 1.2, "EL:20|Portion:100"],
+  ["Erbsen", 75, 5.5, 11, 0.4, "Portion:150"],
+  ["Grüne Bohnen", 32, 2.4, 5, 0.2, "Portion:200", "brechbohnen"],
+  ["Hokkaido-Kürbis", 63, 1.7, 12.6, 0.6, "Portion:200", "kürbis"],
+  ["Sauerkraut", 20, 1.5, 1, 0.3, "Portion:150"],
+  ["Linsen (gekocht)", 116, 9, 20, 0.4, "Portion:200"],
+  ["Kichererbsen (Dose)", 125, 7, 17, 2.6, "Portion:120"],
+  ["Kidneybohnen (Dose)", 105, 7, 15, 0.5, "Portion:120", "bohnen"],
+  ["Tofu (natur)", 125, 13, 1.5, 7.5, "Portion:150"],
+
+  // Milchprodukte & Eier
+  ["Vollmilch 3,5 %", 64, 3.3, 4.8, 3.5, "Glas:200|Schuss:20", "milch", "ml"],
+  ["Fettarme Milch 1,5 %", 47, 3.4, 4.9, 1.5, "Glas:200|Schuss:20", "milch", "ml"],
+  ["Hafermilch", 46, 1, 6.7, 1.5, "Glas:200|Schuss:20", "haferdrink", "ml"],
+  ["Joghurt natur 3,5 %", 64, 3.8, 4.4, 3.5, "Becher:150|EL:15", "jogurt"],
+  ["Joghurt natur 1,5 %", 46, 3.8, 4.4, 1.5, "Becher:150|EL:15", "jogurt"],
+  ["Griechischer Joghurt 10 %", 120, 4.2, 3.6, 10, "Becher:150|EL:20", "jogurt"],
+  ["Skyr natur", 63, 11, 4, 0.2, "Becher:150|EL:20"],
+  ["Magerquark", 67, 12, 4, 0.3, "Portion:125|EL:20", "quark"],
+  ["Speisequark 20 %", 109, 12.5, 3.5, 5, "Portion:125|EL:20", "quark"],
+  ["Hüttenkäse", 100, 12.5, 2.5, 4.3, "Becher:200|EL:20", "körniger frischkäse cottage"],
+  ["Gouda", 360, 25, 0, 29, "Scheibe:20", "käse"],
+  ["Emmentaler", 380, 28, 0, 30, "Scheibe:20", "käse"],
+  ["Mozzarella", 250, 18, 1, 19, "Kugel:125", "käse"],
+  ["Feta", 260, 17, 0.5, 21, "Portion:50", "schafskäse käse"],
+  ["Parmesan", 390, 35, 0, 28, "EL:5", "käse"],
+  ["Frischkäse (Doppelrahm)", 240, 5.5, 3, 23, "EL:15", "käse"],
+  ["Butter", 740, 0.7, 0.6, 83, "TL:5|EL:12"],
+  ["Sahne 30 %", 290, 2.5, 3, 30, "EL:15", "schlagsahne", "ml"],
+  ["Saure Sahne", 117, 3, 3.5, 10, "EL:20", "schmand"],
+  ["Ei (gekocht)", 155, 13, 0.7, 11, "Stück:55", "eier hühnerei frühstücksei"],
+  ["Spiegelei", 195, 13, 0.5, 15.5, "Stück:50", "ei"],
+  ["Rührei", 160, 10, 1.6, 12.5, "Portion:120", "ei"],
+
+  // Fleisch, Wurst & Fisch
+  ["Hähnchenbrust (roh)", 105, 23.5, 0, 1.2, "Stück:150", "huhn hähnchen chicken"],
+  ["Hähnchenbrust (gebraten)", 150, 30, 0, 3, "Portion:130", "huhn hähnchen chicken"],
+  ["Putenbrust", 105, 24, 0, 1, "Portion:150", "pute"],
+  ["Rinderhackfleisch", 240, 18, 0, 18.6, "Portion:125", "hack hackfleisch"],
+  ["Gemischtes Hackfleisch", 260, 18, 0, 21, "Portion:125", "hack"],
+  ["Rindersteak", 140, 22, 0, 5.6, "Stück:200", "steak rumpsteak"],
+  ["Schweineschnitzel (roh)", 106, 22, 0, 2, "Stück:150", "schnitzel"],
+  ["Wiener Schnitzel (paniert)", 225, 18, 11, 12, "Stück:180", "schnitzel paniert"],
+  ["Bratwurst", 300, 13, 0.5, 27, "Stück:100", "wurst rostbratwurst"],
+  ["Wiener Würstchen", 260, 13, 0.5, 23, "Stück:50|Paar:100", "würstchen frankfurter"],
+  ["Leberkäse", 290, 12, 1, 26.5, "Scheibe:100", "fleischkäse leberkas"],
+  ["Salami", 400, 22, 0.5, 34.5, "Scheibe:8", "wurst"],
+  ["Kochschinken", 110, 19, 1, 3.5, "Scheibe:25", "schinken"],
+  ["Rohschinken", 240, 29, 0, 14, "Scheibe:15", "schinken serrano parma schwarzwälder"],
+  ["Lyoner", 280, 12, 1, 25.5, "Scheibe:15", "fleischwurst wurst"],
+  ["Lachs (roh)", 200, 20, 0, 13.4, "Stück:125", "fisch"],
+  ["Räucherlachs", 180, 21, 0, 10.5, "Scheibe:20", "lachs fisch"],
+  ["Thunfisch (Dose, natur)", 105, 24, 0, 1, "Dose:140", "fisch"],
+  ["Kabeljau", 77, 17.7, 0, 0.6, "Stück:150", "dorsch fisch"],
+  ["Fischstäbchen", 200, 12, 17, 9.5, "Stück:30", "fisch"],
+  ["Garnelen", 85, 19, 0.5, 1, "Portion:100", "shrimps krabben scampi"],
+
+  // Gerichte & Snacks unterwegs
+  ["Döner Kebab", 215, 11, 22, 9, "Stück:350", "döner kebap"],
+  ["Currywurst mit Soße", 220, 9, 9, 16.5, "Portion:250", "currywurst"],
+  ["Hamburger", 250, 13, 27, 10, "Stück:120", "burger"],
+  ["Cheeseburger", 263, 14, 26, 11.5, "Stück:120", "burger"],
+  ["Chicken Nuggets", 270, 15, 16, 16.5, "Stück:18", "nuggets"],
+  ["Pizza Margherita", 245, 10, 31, 8.5, "Pizza:330|Stück:110", "pizza"],
+  ["Pizza Salami", 275, 11, 29, 12.5, "Pizza:350|Stück:115", "pizza"],
+  ["Spaghetti Bolognese", 135, 6.5, 17, 4.5, "Teller:400", "nudeln bolognese"],
+  ["Lasagne", 150, 8, 12, 8, "Portion:350"],
+  ["Chili con Carne", 110, 8, 9, 4.5, "Portion:350", "chili"],
+  ["Hähnchen-Curry", 140, 11, 5, 8.5, "Portion:350", "curry"],
+  ["Gulasch", 125, 13, 4, 6.5, "Portion:300"],
+  ["Sushi (Maki)", 145, 5, 28, 1.5, "Stück:25", "sushi maki"],
+  ["Gemischter Salat mit Dressing", 75, 1.5, 4, 6, "Portion:200", "salat"],
+  ["Kartoffelsalat (mit Mayo)", 150, 2, 14, 9.5, "Portion:200"],
+  ["Nudelsalat", 200, 5, 22, 10, "Portion:200"],
+  ["Tomatensuppe", 45, 1, 6, 2, "Teller:300", "suppe"],
+  ["Linseneintopf", 82, 5, 11, 2, "Teller:350", "linsensuppe eintopf"],
+  ["Belegtes Brötchen (Käse)", 270, 12, 30, 11, "Stück:110", "käsebrötchen semmel"],
+  ["Belegtes Brötchen (Salami)", 300, 11.5, 30, 15, "Stück:110", "salamibrötchen semmel"],
+
+  // Aufstriche, Saucen & Fette
+  ["Nuss-Nougat-Creme", 535, 6, 57.5, 31, "TL:10|EL:20", "nutella schokocreme"],
+  ["Marmelade", 250, 0.4, 61, 0.1, "TL:10|EL:20", "konfitüre gelee"],
+  ["Honig", 305, 0.4, 76, 0, "TL:10"],
+  ["Erdnussbutter", 600, 25, 13, 50, "TL:8|EL:15", "erdnussmus"],
+  ["Hummus", 240, 7, 14, 17, "EL:20"],
+  ["Ketchup", 105, 1.2, 24, 0.2, "EL:15"],
+  ["Mayonnaise", 680, 1, 1.5, 75, "EL:15", "mayo"],
+  ["Senf", 85, 5.5, 5, 4.5, "TL:5"],
+  ["Olivenöl", 900, 0, 0, 100, "EL:12|TL:5", "öl"],
+  ["Rapsöl", 900, 0, 0, 100, "EL:12|TL:5", "öl"],
+  ["Zucker", 400, 0, 100, 0, "TL:5|Würfel:3"],
+
+  // Süßes & Knabbereien
+  ["Vollmilchschokolade", 535, 7, 57, 31, "Stück:4|Riegel:25|Tafel:100", "schokolade"],
+  ["Zartbitterschokolade 70 %", 567, 9, 36, 43, "Stück:4|Tafel:100", "schokolade dunkle"],
+  ["Gummibärchen", 341, 6.9, 77, 0.5, "Handvoll:25|Tüte:200", "fruchtgummi haribo"],
+  ["Kartoffelchips", 530, 6, 50, 34, "Handvoll:25|Tüte:175", "chips"],
+  ["Eis (Vanille)", 210, 3.5, 24, 11, "Kugel:60", "speiseeis eiscreme"],
+  ["Butterkeks", 431, 7.5, 72, 12.5, "Stück:8", "keks kekse"],
+  ["Müsliriegel", 393, 6, 63, 13, "Riegel:25"],
+  ["Proteinriegel", 360, 33, 30, 12, "Riegel:50", "eiweißriegel"],
+  ["Mandeln", 590, 24, 6, 52, "Handvoll:25"],
+  ["Walnüsse", 678, 15, 7, 65.5, "Handvoll:25", "nüsse"],
+  ["Erdnüsse (geröstet)", 590, 26, 11, 49, "Handvoll:25"],
+  ["Cashewkerne", 588, 18, 30, 44, "Handvoll:25", "cashews"],
+  ["Sonnenblumenkerne", 573, 21, 12, 49, "EL:10"],
+  ["Chiasamen", 450, 17, 8, 31, "EL:12", "chia"],
+
+  // Getränke (pro 100 ml)
+  ["Kaffee (schwarz)", 2, 0.2, 0.3, 0, "Tasse:200|Espresso:30", "espresso filterkaffee", "ml"],
+  ["Cappuccino", 38, 2, 3, 2, "Tasse:180", "kaffee", "ml"],
+  ["Latte Macchiato", 50, 2.7, 4, 2.7, "Glas:300", "kaffee latte", "ml"],
+  ["Orangensaft", 45, 0.7, 9.6, 0.2, "Glas:200", "o-saft saft", "ml"],
+  ["Apfelsaft", 46, 0.1, 11, 0.1, "Glas:200", "saft", "ml"],
+  ["Apfelschorle", 24, 0, 5.5, 0, "Glas:300|Flasche:500", "schorle", "ml"],
+  ["Cola", 42, 0, 10.6, 0, "Dose:330|Glas:250|Flasche:500", "coca", "ml"],
+  ["Cola Zero / Light", 0.3, 0, 0, 0, "Dose:330|Glas:250|Flasche:500", "coke zero light", "ml"],
+  ["Energydrink", 45, 0, 11, 0, "Dose:250", "red bull", "ml"],
+  ["Smoothie", 55, 0.6, 12, 0.2, "Flasche:250", "", "ml"],
+  ["Bier (Pils)", 42, 0.5, 3, 0, "Flasche:500|Glas:300", "pils helles", "ml"],
+  ["Weizenbier", 45, 0.5, 3.2, 0, "Glas:500", "weißbier hefeweizen", "ml"],
+  ["Alkoholfreies Bier", 25, 0.4, 5, 0, "Flasche:500|Glas:300", "bier", "ml"],
+  ["Rotwein", 68, 0.2, 2.6, 0, "Glas:200", "wein", "ml"],
+  ["Weißwein", 68, 0.2, 2.6, 0, "Glas:200", "wein", "ml"],
+  ["Sekt / Prosecco", 75, 0.2, 3, 0, "Glas:100", "sekt prosecco", "ml"],
+  ["Aperol Spritz", 80, 0, 8, 0, "Glas:250", "spritz", "ml"],
+];
+
+function parsePortions(s: string): Portion[] {
+  return s
+    .split("|")
+    .map((p) => p.split(":"))
+    .filter(([l, a]) => l && a)
+    .map(([label, amount]) => ({ label, amount: Number(amount) }));
+}
+
+export interface GenericFood {
+  food: FoodSnapshot;
+  synonyms: string;
+}
+
+export const GENERIC_FOODS: GenericFood[] = ROWS.map(([name, kcal, protein, carbs, fat, portions, syn, unit]) => ({
+  synonyms: syn ?? "",
+  food: {
+    name,
+    unit: unit ?? "g",
+    per100: { kcal, protein, carbs, fat },
+    portions: parsePortions(portions),
+    source: "generic",
+  },
+}));

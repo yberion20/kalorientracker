@@ -126,3 +126,42 @@ export async function fileToJpegBase64(file: File, maxSide = 1280): Promise<{ ba
   const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
   return { base64: dataUrl.split(",")[1], previewUrl: dataUrl };
 }
+
+const PortionsSchema = z.object({
+  portions: z
+    .array(
+      z.object({
+        label: z.string().describe("Deutsche Einheit im Singular, z. B. Stück, Scheibe, Riegel, Glas, Becher, Teller, EL"),
+        amount: z.number().describe("Gewicht einer solchen Einheit in g (bzw. ml bei Getränken)"),
+      }),
+    )
+    .describe("1 bis 3 typische Verzehreinheiten, die gängigste zuerst"),
+});
+
+/** Schätzt typische Portionsgrößen (z. B. 1 Brezel ≈ 85 g) für ein Lebensmittel. */
+export async function estimatePortions(
+  apiKey: string,
+  model: string,
+  food: { name: string; brand?: string; unit: "g" | "ml"; kcalPer100: number },
+) {
+  try {
+    const res = await client(apiKey).beta.messages.parse({
+      model,
+      max_tokens: 1000,
+      output_config: { effort: "low", format: betaZodOutputFormat(PortionsSchema) },
+      messages: [
+        {
+          role: "user",
+          content:
+            `Welche typischen Verzehreinheiten gibt es in Deutschland für dieses Lebensmittel, und wie viel ${food.unit} wiegt jeweils eine?\n` +
+            `Lebensmittel: ${food.name}${food.brand ? ` (Marke: ${food.brand})` : ""}, ${Math.round(food.kcalPer100)} kcal pro 100 ${food.unit}.\n` +
+            "Nutze bei Markenprodukten die übliche Packungs- oder Stückgröße. Keine Einheit „g“ oder „100 g“.",
+        },
+      ],
+    });
+    if (!res.parsed_output) throw new Error("Die KI-Antwort konnte nicht gelesen werden.");
+    return res.parsed_output.portions.filter((p) => p.label && p.amount > 0).slice(0, 3);
+  } catch (e) {
+    throw new Error(describeError(e));
+  }
+}

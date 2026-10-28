@@ -5,7 +5,7 @@ import { SwipeRow } from "../components/SwipeRow";
 import { FoodThumb, MacroBars, Ring, Sheet } from "../components/ui";
 import { type Entry, addEntry, copyMeal, db, getSettings, uid, updateEntry } from "../db";
 import { parseHealthText, shortcutUrl } from "../lib/health";
-import { MEALS, type Meal, addDays, fmt, formatDayLabel, goalsForDay, sum, todayISO } from "../lib/nutrition";
+import { MEALS, type Meal, addDays, fmt, formatAmount, formatDayLabel, goalsForDay, sum, todayISO } from "../lib/nutrition";
 import { FastingStatusCard } from "../components/FastingCard";
 import { AddFood } from "./AddFood";
 
@@ -165,7 +165,7 @@ export function Diary({
                     <div className="grow">
                       <div className="ellipsis">{e.food.name}</div>
                       <div className="small muted ellipsis">
-                        {e.food.source === "quick" ? "Schnell-Eintrag" : `${fmt(e.amount)} ${e.food.unit}`}
+                        {e.food.source === "quick" ? "Schnell-Eintrag" : formatAmount(e.amount, e.food.unit, e.portion)}
                         {e.food.brand ? ` · ${e.food.brand}` : ""}
                       </div>
                     </div>
@@ -276,19 +276,19 @@ export function Diary({
           goToSettings();
         }}
         onAdd={async (items) => {
-          for (const it of items) await addEntry(date, addFor!, it.food, it.amount);
+          for (const it of items) await addEntry(date, addFor!, it.food, it.amount, it.portion);
         }}
       />
 
       <AmountSheet
         food={editing?.food ?? null}
-        initialAmount={editing?.amount}
+        initial={editing ? { amount: editing.amount, portion: editing.portion } : undefined}
         confirmLabel="Speichern"
         meal={editMeal}
         onMealChange={setEditMeal}
         onClose={() => setEditing(null)}
-        onConfirm={async (amount) => {
-          await updateEntry(editing!.id, { amount, meal: editMeal });
+        onConfirm={async (sel) => {
+          await updateEntry(editing!.id, { amount: sel.amount, meal: editMeal, portion: sel.portion });
           setEditing(null);
         }}
         onDelete={async () => {
@@ -319,7 +319,7 @@ export function Diary({
                 await db.savedMeals.add({
                   id: uid(),
                   name: mealName.trim(),
-                  items: byMeal(saveMealOf).map((e) => ({ food: e.food, amount: e.amount })),
+                  items: byMeal(saveMealOf).map((e) => ({ food: e.food, amount: e.amount, portion: e.portion })),
                   updatedAt: Date.now(),
                 });
                 setSaveMealOf(null);
