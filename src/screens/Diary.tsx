@@ -276,7 +276,7 @@ export function Diary({
           goToSettings();
         }}
         onAdd={async (items) => {
-          for (const it of items) await addEntry(date, addFor!, it.food, it.amount, it.portion);
+          for (const it of items) await addEntry(date, addFor!, it.food, it.amount, it.portion, it.fromMeal);
         }}
       />
 

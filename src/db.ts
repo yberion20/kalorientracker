@@ -26,6 +26,8 @@ export interface Food extends FoodSnapshot {
   preferred?: Selection;
   /** Zuletzt gewählte Menge */
   lastSelection?: Selection;
+  /** Vorschlag „Als Favorit speichern?“ wurde abgelehnt */
+  favSuggestDismissed?: 1;
 }
 
 export interface Entry {
@@ -37,6 +39,8 @@ export interface Entry {
   portion?: PortionChoice;
   nutrients: Nutrients;
   createdAt: number;
+  /** Stammt aus einer gespeicherten Mahlzeit (zählt nicht für „Häufig“) */
+  fromMeal?: true;
 }
 
 export interface SavedMealItem {
@@ -167,6 +171,13 @@ export async function ensureFood(f: FoodSnapshot) {
   });
 }
 
+/** „Als Favorit speichern?“ für dieses Lebensmittel nicht mehr vorschlagen. */
+export async function dismissFavoriteSuggestion(f: FoodSnapshot) {
+  const id = foodKey(f);
+  if (await db.foods.get(id)) await db.foods.update(id, { favSuggestDismissed: 1 });
+  else await db.foods.put({ ...snapshotOf(f), id, favorite: 0, lastUsedAt: 0, useCount: 0, favSuggestDismissed: 1 });
+}
+
 export async function setFavorite(f: FoodSnapshot, favorite: boolean, preferred?: Selection) {
   const id = foodKey(f);
   const existing = await db.foods.get(id);
@@ -185,7 +196,14 @@ export function snapshotOf(f: Food | FoodSnapshot): FoodSnapshot {
   return { name, brand, ean, per100, unit, servingSize, servingLabel, imageUrl, source, portions };
 }
 
-export async function addEntry(date: string, meal: Meal, food: FoodSnapshot, amount: number, portion?: PortionChoice) {
+export async function addEntry(
+  date: string,
+  meal: Meal,
+  food: FoodSnapshot,
+  amount: number,
+  portion?: PortionChoice,
+  fromMeal = false,
+) {
   const entry: Entry = {
     id: uid(),
     date,
@@ -193,6 +211,7 @@ export async function addEntry(date: string, meal: Meal, food: FoodSnapshot, amo
     food: snapshotOf(food),
     amount,
     ...(portion ? { portion } : {}),
+    ...(fromMeal ? { fromMeal: true as const } : {}),
     nutrients: scale(food.per100, amount),
     createdAt: Date.now(),
   };
@@ -224,6 +243,7 @@ export async function addSavedMealToDay(meal: SavedMeal, date: string, slot: Mea
       ...(it.portion ? { portion: { ...it.portion, count: it.portion.count * factor } } : {}),
       nutrients: scale(it.food.per100, it.amount * factor),
       createdAt: now + i,
+      fromMeal: true as const,
     })),
   );
 }

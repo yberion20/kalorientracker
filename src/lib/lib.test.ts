@@ -215,3 +215,35 @@ describe("Portionen", () => {
     expect(searchItems(genericItems(), "semmel")[0].name).toMatch(/brötchen/i);
   });
 });
+
+describe("häufig genutzte Lebensmittel", async () => {
+  const { frequentFoods } = await import("./frequent");
+  const food = (name: string) => ({ name, per100: { kcal: 100, protein: 1, carbs: 1, fat: 1 }, unit: "g" as const, source: "generic" as const });
+  let t = 0;
+  const entry = (name: string, amount: number, extra: Record<string, unknown> = {}) =>
+    ({ id: String(++t), date: "2026-11-16", meal: "breakfast", food: food(name), amount, nutrients: food(name).per100, createdAt: t, ...extra }) as never;
+
+  it("zählt Lebensmittel und wählt die häufigste Menge", () => {
+    const list = frequentFoods([
+      entry("Haferflocken", 50),
+      entry("Haferflocken", 60),
+      entry("Haferflocken", 60),
+      entry("Banane", 120),
+      entry("Banane", 120),
+      entry("Apfel", 150),
+    ]);
+    expect(list.map((f) => [f.food.name, f.count, f.selection.amount])).toEqual([
+      ["Haferflocken", 3, 60],
+      ["Banane", 2, 120],
+    ]);
+  });
+
+  it("ignoriert Mahlzeit- und Schnelleinträge und schaut nur auf die letzten N", () => {
+    const quick = { ...(entry("Kalorien", 100) as object), food: { ...food("Kalorien"), source: "quick" } } as never;
+    const list = frequentFoods(
+      [entry("Reis", 100), entry("Reis", 100), entry("Nudeln", 100, { fromMeal: true }), entry("Nudeln", 100, { fromMeal: true }), quick, quick, entry("Quark", 250), entry("Quark", 250)],
+      3,
+    );
+    expect(list.map((f) => f.food.name)).toEqual(["Quark"]);
+  });
+});

@@ -6,7 +6,7 @@ Eigener Kalorien-Tracker (Yazio-Nachbau) als Web-App fürs iPhone. Du installier
 
 - Tagebuch mit Frühstück, Mittagessen, Abendessen und Snacks, Kalorienring und Makros
 - Barcode-Scanner (EAN) mit Lookup in Open Food Facts und Mengeneingabe in g/ml bzw. Portionen
-- Suche in Open Food Facts, dazu Favoriten, „Zuletzt“, eigene Lebensmittel und Schnell-Eintrag nur mit kcal
+- Suche in Open Food Facts, dazu Favoriten, „Zuletzt“, „Häufig“ (mit der üblichen Menge und Favoriten-Vorschlag), eigene Lebensmittel und Schnell-Eintrag nur mit kcal
 - KI-Modus (Claude): Mahlzeit beschreiben oder diktieren, oder Essen fotografieren. Die Schätzung lässt sich vor dem Übernehmen bearbeiten.
 - Gespeicherte Mahlzeiten: anlegen, bearbeiten, mit einem Tipp einfügen (auch ½× oder 2×)
 - Gewichtstracker mit Diagramm (7-Tage-Durchschnitt, Zielgewicht)

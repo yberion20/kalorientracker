@@ -5,12 +5,13 @@ import { AmountSheet, sourceLabel } from "../components/AmountSheet";
 import { CustomFoodForm, QuickAddForm } from "../components/CustomFoodForm";
 import { type CapturedPhoto, Scanner } from "../components/Scanner";
 import { FoodThumb, Sheet } from "../components/ui";
-import { type Food, type SavedMeal, db, ensureFood, foodKey, snapshotOf } from "../db";
+import { type Food, type SavedMeal, db, dismissFavoriteSuggestion, ensureFood, foodKey, setFavorite, snapshotOf } from "../db";
 import { type FoodSnapshot, type PortionChoice, type Selection, fmt, formatAmount, scale, sum } from "../lib/nutrition";
 import { genericItems, loadCatalog, normalize, searchItems } from "../lib/catalog";
 import { OffError, lookupBarcode, searchOff } from "../lib/off";
+import { FREQUENT_WINDOW, SUGGEST_FAVORITE_MIN, frequentFoods } from "../lib/frequent";
 
-export type AddItem = { food: FoodSnapshot; amount: number; portion?: PortionChoice };
+export type AddItem = { food: FoodSnapshot; amount: number; portion?: PortionChoice; fromMeal?: boolean };
 export type AddItems = (items: AddItem[]) => void | Promise<void>;
 
 type Tab = "search" | "scan" | "ai" | "meals" | "custom";
@@ -105,9 +106,9 @@ function AddFoodBody({ onAdd, withSavedMeals, goToSettings }: { onAdd: AddItems;
 
 type Catalog = Awaited<ReturnType<typeof loadCatalog>>;
 
-function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; onQuickAdd: (f: Food, sel: Selection) => void }) {
+function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; onQuickAdd: (f: FoodSnapshot, sel: Selection) => void }) {
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"recent" | "fav" | "custom">("recent");
+  const [filter, setFilter] = useState<"recent" | "frequent" | "fav" | "custom">("recent");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogError, setCatalogError] = useState(false);
   const [online, setOnline] = useState<{ query: string; results: FoodSnapshot[] | null; error: string | null } | null>(null);
@@ -120,6 +121,17 @@ function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; 
   }, []);
 
   const local = useLiveQuery(() => db.foods.toArray(), []);
+  // Etwas mehr laden als nötig, weil Mahlzeit- und Schnelleinträge danach herausgefiltert werden.
+  const recentEntries = useLiveQuery(() => db.entries.orderBy("createdAt").reverse().limit(FREQUENT_WINDOW * 3).toArray(), []);
+
+  const frequent = useMemo(() => {
+    if (!recentEntries) return [];
+    const byKey = new Map((local ?? []).map((f) => [f.id, f]));
+    return frequentFoods(recentEntries).map((f) => ({ ...f, record: byKey.get(f.key) }));
+  }, [recentEntries, local]);
+
+  // Häufig genutzt, aber kein Favorit (und der Vorschlag wurde nicht abgelehnt).
+  const suggestion = frequent.find((f) => f.count >= SUGGEST_FAVORITE_MIN && !f.record?.favorite && !f.record?.favSuggestDismissed);
 
   const query = deferred.trim();
   const nq = normalize(query);
@@ -184,9 +196,30 @@ function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; 
 
       {!query && (
         <>
-          <div className="row" style={{ margin: "12px 0 0", gap: 6 }}>
+          {suggestion && (
+            <div className="notice" style={{ marginTop: 12 }}>
+              <div>
+                Du hast <b>{suggestion.food.name}</b> zuletzt {suggestion.count}× eingetragen. Als Favorit speichern?
+              </div>
+              <div className="small muted" style={{ marginTop: 4 }}>
+                Feste Menge: {formatAmount(suggestion.selection.amount, suggestion.food.unit, suggestion.selection.portion)}
+              </div>
+              <div className="row" style={{ marginTop: 8, gap: 6 }}>
+                <button className="btn small primary" onClick={() => setFavorite(suggestion.food, true, suggestion.selection)}>
+                  ★ Als Favorit
+                </button>
+                <button className="btn small" onClick={() => dismissFavoriteSuggestion(suggestion.food)}>
+                  Nein, danke
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="row" style={{ margin: "12px 0 0", gap: 6, flexWrap: "wrap" }}>
             <button className={`chip${filter === "recent" ? " active" : ""}`} onClick={() => setFilter("recent")}>
               Zuletzt
+            </button>
+            <button className={`chip${filter === "frequent" ? " active" : ""}`} onClick={() => setFilter("frequent")}>
+              Häufig
             </button>
             <button className={`chip${filter === "fav" ? " active" : ""}`} onClick={() => setFilter("fav")}>
               ★ Favoriten
@@ -195,7 +228,24 @@ function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; 
               Eigene
             </button>
           </div>
-          {localMatches.length > 0 ? (
+          {filter === "frequent" ? (
+            frequent.length > 0 ? (
+              <>
+                <div className="section-title" />
+                <FoodList
+                  foods={frequent.map((f) => f.record ?? f.food)}
+                  selections={frequent.map((f) => f.selection)}
+                  counts={frequent.map((f) => f.count)}
+                  onPick={onPick}
+                  onQuickAdd={onQuickAdd}
+                />
+              </>
+            ) : (
+              <div className="empty small">
+                Hier erscheinen die Lebensmittel, die du am häufigsten einträgst – mit deiner üblichen Menge.
+              </div>
+            )
+          ) : localMatches.length > 0 ? (
             <>
               <div className="section-title" />
               <FoodList foods={localMatches} onPick={onPick} onQuickAdd={onQuickAdd} />
@@ -278,20 +328,26 @@ function SearchTab({ onPick, onQuickAdd }: { onPick: (f: FoodSnapshot) => void; 
 
 function FoodList({
   foods,
+  selections,
+  counts,
   onPick,
   onQuickAdd,
 }: {
   foods: (FoodSnapshot | Food)[];
+  /** Feste Menge je Eintrag (z. B. die am häufigsten genutzte) statt der gemerkten */
+  selections?: Selection[];
+  /** Anzahl der Einträge, wird hinter der Menge angezeigt */
+  counts?: number[];
   onPick: (f: FoodSnapshot) => void;
-  onQuickAdd?: (f: Food, sel: Selection) => void;
+  onQuickAdd?: (f: FoodSnapshot, sel: Selection) => void;
 }) {
   return (
     <div className="list">
       {foods.map((f, i) => {
         const rec = "id" in f ? (f as Food) : undefined;
         // Favoriten nutzen ihre feste Menge, sonst die zuletzt gegessene.
-        const sel = rec ? (rec.favorite ? (rec.preferred ?? rec.lastSelection) : rec.lastSelection) : undefined;
-        const quick = !!(sel && onQuickAdd && rec);
+        const sel = selections?.[i] ?? (rec ? (rec.favorite ? (rec.preferred ?? rec.lastSelection) : rec.lastSelection) : undefined);
+        const quick = !!(sel && onQuickAdd && (rec || selections));
         return (
           <div key={`${f.ean ?? f.name}-${i}`} className="list-item" role="button" onClick={() => onPick(snapshotOf(f))}>
             <FoodThumb imageUrl={f.imageUrl} source={f.source} />
@@ -302,7 +358,7 @@ function FoodList({
               </div>
               <div className="small muted ellipsis">
                 {sel
-                  ? `${formatAmount(sel.amount, f.unit, sel.portion)} · ${fmt(scale(f.per100, sel.amount).kcal)} kcal`
+                  ? `${formatAmount(sel.amount, f.unit, sel.portion)} · ${fmt(scale(f.per100, sel.amount).kcal)} kcal${counts ? ` · ${counts[i]}×` : ""}`
                   : f.source === "generic" && f.portions?.[0]
                     ? `1 ${f.portions[0].label} (${fmt(f.portions[0].amount)} ${f.unit}) · ${fmt(scale(f.per100, f.portions[0].amount).kcal)} kcal`
                     : [f.brand, `${fmt(f.per100.kcal)} kcal / 100 ${f.unit}`].filter(Boolean).join(" · ")}
@@ -313,7 +369,7 @@ function FoodList({
               aria-label={quick ? "Mit gemerkter Menge hinzufügen" : "Menge wählen"}
               onClick={(e) => {
                 e.stopPropagation();
-                if (quick) onQuickAdd!(rec!, sel!);
+                if (quick) onQuickAdd!(f, sel!);
                 else onPick(snapshotOf(f));
               }}
             >
@@ -561,6 +617,7 @@ function SavedMealsTab({ onAdd }: { onAdd: (items: AddItem[], msg?: string) => v
                     food: i.food,
                     amount: i.amount * factor,
                     portion: i.portion ? { ...i.portion, count: i.portion.count * factor } : undefined,
+                    fromMeal: true,
                   })),
                   `${m.name} hinzugefügt`,
                 );
