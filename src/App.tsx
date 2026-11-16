@@ -21,7 +21,25 @@ export default function App() {
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
-  } = useRegisterSW();
+  } = useRegisterSW({
+    // iOS pausiert die Web-App beim Schließen meist nur. Darum beim Zurückkehren
+    // (und stündlich) selbst nach einer neuen Version fragen.
+    onRegisteredSW(_url, registration) {
+      if (!registration) return;
+      let last = 0;
+      const check = () => {
+        if (!navigator.onLine || registration.installing || Date.now() - last < 30_000) return;
+        last = Date.now();
+        registration.update().catch(() => {});
+      };
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+      window.addEventListener("focus", check);
+      window.addEventListener("pageshow", check);
+      setInterval(check, 60 * 60 * 1000);
+    },
+  });
 
   // Wenn die App über Nacht offen bleibt, beim Zurückkehren auf "heute" springen.
   useEffect(() => {
