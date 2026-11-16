@@ -247,3 +247,15 @@ describe("häufig genutzte Lebensmittel", async () => {
     expect(list.map((f) => f.food.name)).toEqual(["Quark"]);
   });
 });
+
+describe("Kamera-Ausschnitt", async () => {
+  const { visibleRegion } = await import("./crop");
+  it("schneidet ein Querformat-Bild auf die Hochformat-Vorschau zu", () => {
+    // 1920×1080 in einer 3:4-Vorschau: volle Höhe, Breite 810 mittig
+    expect(visibleRegion(1920, 1080, 300, 400)).toEqual({ sx: 555, sy: 0, sw: 810, sh: 1080 });
+  });
+  it("schneidet ein Hochformat-Bild oben und unten ab", () => {
+    // 1080×1920 in 3:4: volle Breite, Höhe 1440 mittig
+    expect(visibleRegion(1080, 1920, 300, 400)).toEqual({ sx: 0, sy: 240, sw: 1080, sh: 1440 });
+  });
+});

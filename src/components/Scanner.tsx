@@ -2,6 +2,7 @@ import { BarcodeDetector, setZXingModuleOverrides } from "barcode-detector/ponyf
 import wasmUrl from "zxing-wasm/reader/zxing_reader.wasm?url";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { acquireCamera, releaseCamera } from "../lib/camera";
+import { visibleRegion } from "../lib/crop";
 
 // Die WebAssembly-Datei mit ausliefern statt vom CDN laden – so geht der Scanner auch offline.
 setZXingModuleOverrides({
@@ -130,12 +131,14 @@ export function Scanner({
   const capture = () => {
     const v = videoRef.current;
     if (!v || !onCapture || v.readyState < 2) return;
+    const { sx, sy, sw, sh } = visibleRegion(v.videoWidth, v.videoHeight, v.clientWidth, v.clientHeight);
     const maxSide = 1280;
-    const s = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight));
+    const s = Math.min(1, maxSide / Math.max(sw, sh));
     const c = document.createElement("canvas");
-    c.width = Math.round(v.videoWidth * s);
-    c.height = Math.round(v.videoHeight * s);
-    c.getContext("2d")!.drawImage(v, 0, 0, c.width, c.height);
+    c.width = Math.round(sw * s);
+    c.height = Math.round(sh * s);
+    // Nur den Ausschnitt verwenden, der in der Vorschau zu sehen war.
+    c.getContext("2d")!.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
     const previewUrl = c.toDataURL("image/jpeg", 0.82);
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
