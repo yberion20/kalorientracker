@@ -513,6 +513,7 @@ textarea.input {
   border-radius: 22px 22px 0 0;
   padding: 10px 16px calc(var(--safe-bottom) + 16px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   animation: slide 0.2s ease-out;
 }
@@ -527,7 +528,24 @@ textarea.input {
   height: 5px;
   border-radius: 3px;
   background: var(--line);
-  margin: 0 auto 10px;
+  /* unsichtbarer Rand als größere Fläche zum Greifen */
+  box-sizing: content-box;
+  border: 12px solid transparent;
+  border-width: 10px 30px 12px;
+  background-clip: padding-box;
+  margin: -10px auto -2px;
+}
+
+/* Tastatur offen: Sheet passt in den sichtbaren Bereich darüber */
+.sheet-backdrop.keyboard {
+  bottom: auto;
+}
+
+.sheet-backdrop.keyboard .sheet,
+.sheet-backdrop.keyboard .sheet.full {
+  height: auto;
+  max-height: 100%;
+  padding-bottom: 16px;
 }
 
 .sheet-head {

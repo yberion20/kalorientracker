@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { type Goals, type Nutrients, fmt } from "../lib/nutrition";
 
@@ -28,8 +28,145 @@ export function Sheet({
   if (!open) return null;
   // Per Portal an <body> hängen, damit verschachtelte Sheets sich korrekt überlagern.
   return createPortal(
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div className={`sheet${full ? " full" : ""}`} onClick={(e) => e.stopPropagation()}>
+    <SheetBody onClose={onClose} title={title} full={full} left={left}>
+      {children}
+    </SheetBody>,
+    document.body,
+  );
+}
+
+/** Ab dieser Strecke (px) oder mit einem schnellen Wisch nach unten schließt das Sheet. */
+const CLOSE_DISTANCE = 110;
+const CLOSE_VELOCITY = 0.6;
+
+/** Liegt der Finger in einem eigenen Scrollbereich (z. B. Zahlenrad), der die Geste selbst braucht? */
+function inInnerScroller(target: EventTarget | null, sheet: HTMLElement) {
+  for (let el = target as HTMLElement | null; el && el !== sheet; el = el.parentElement) {
+    if (el.closest?.(".wheel, [data-no-sheet-drag]")) return true;
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 1 && el.scrollTop > 0) return true;
+  }
+  return false;
+}
+
+function SheetBody({
+  onClose,
+  title,
+  children,
+  full,
+  left,
+}: {
+  onClose: () => void;
+  title?: ReactNode;
+  children: ReactNode;
+  full?: boolean;
+  left?: ReactNode;
+}) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  // Tastatur: iOS legt sie über die Seite. Das Sheet auf den sichtbaren Bereich verkleinern
+  // und das Eingabefeld in die Mitte holen, damit man die aktuelle Menge sieht.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const backdrop = backdropRef.current!;
+    const sheet = sheetRef.current!;
+    const reveal = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && sheet.contains(el) && el.matches("input, textarea")) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    };
+    const fit = () => {
+      if (!vv) return;
+      const keyboard = window.innerHeight - vv.height > 120;
+      backdrop.style.top = keyboard ? `${vv.offsetTop}px` : "";
+      backdrop.style.height = keyboard ? `${vv.height}px` : "";
+      backdrop.classList.toggle("keyboard", keyboard);
+      if (keyboard) requestAnimationFrame(reveal);
+    };
+    const onFocus = () => setTimeout(reveal, 350);
+    vv?.addEventListener("resize", fit);
+    vv?.addEventListener("scroll", fit);
+    sheet.addEventListener("focusin", onFocus);
+    fit();
+    return () => {
+      vv?.removeEventListener("resize", fit);
+      vv?.removeEventListener("scroll", fit);
+      sheet.removeEventListener("focusin", onFocus);
+    };
+  }, []);
+
+  // Zum Schließen nach unten ziehen – am Griff/Kopf immer, im Inhalt, wenn er oben steht.
+  useEffect(() => {
+    const sheet = sheetRef.current!;
+    let startY = 0;
+    let startX = 0;
+    let startT = 0;
+    let dy = 0;
+    let state: "idle" | "maybe" | "drag" | "off" = "idle";
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const onHandle = !!(e.target as HTMLElement).closest(".sheet-grip, .sheet-head");
+      if (!onHandle && (sheet.scrollTop > 0 || inInnerScroller(e.target, sheet))) {
+        state = "off";
+        return;
+      }
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      startT = Date.now();
+      dy = 0;
+      state = "maybe";
+    };
+    const onMove = (e: TouchEvent) => {
+      if (state === "off" || state === "idle") return;
+      const y = e.touches[0].clientY - startY;
+      const x = e.touches[0].clientX - startX;
+      if (state === "maybe") {
+        if (Math.abs(x) < 8 && Math.abs(y) < 8) return;
+        // Waagerecht oder nach oben: normales Scrollen/Wischen.
+        if (y <= 0 || Math.abs(x) > Math.abs(y)) {
+          state = "off";
+          return;
+        }
+        state = "drag";
+        sheet.style.transition = "none";
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      }
+      e.preventDefault();
+      dy = Math.max(0, y);
+      sheet.style.transform = `translateY(${dy}px)`;
+    };
+    const onEnd = () => {
+      if (state === "drag") {
+        const v = dy / Math.max(1, Date.now() - startT);
+        sheet.style.transition = "transform 0.2s ease-out";
+        if (dy > CLOSE_DISTANCE || (v > CLOSE_VELOCITY && dy > 30)) {
+          sheet.style.transform = "translateY(100%)";
+          setTimeout(() => closeRef.current(), 180);
+        } else {
+          sheet.style.transform = "";
+        }
+      }
+      state = "idle";
+    };
+
+    sheet.addEventListener("touchstart", onStart, { passive: true });
+    sheet.addEventListener("touchmove", onMove, { passive: false });
+    sheet.addEventListener("touchend", onEnd);
+    sheet.addEventListener("touchcancel", onEnd);
+    return () => {
+      sheet.removeEventListener("touchstart", onStart);
+      sheet.removeEventListener("touchmove", onMove);
+      sheet.removeEventListener("touchend", onEnd);
+      sheet.removeEventListener("touchcancel", onEnd);
+    };
+  }, []);
+
+  return (
+    <div className="sheet-backdrop" ref={backdropRef} onClick={onClose}>
+      <div className={`sheet${full ? " full" : ""}`} ref={sheetRef} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-grip" />
         {(title || left) && (
           <div className="sheet-head">
@@ -42,8 +179,7 @@ export function Sheet({
         )}
         {children}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }
 
